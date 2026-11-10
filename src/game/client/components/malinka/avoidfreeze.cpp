@@ -48,6 +48,15 @@ struct SAvoidTiles
 	int m_UnfreezeTicks;
 };
 
+bool ValidAvoidPosition(vec2 Pos)
+{
+	// Collision rounds positions into signed map-index integers. Reject corrupt
+	// snapshots before that conversion; this is a defensive bound, not a game
+	// offset or a recovered KRX constant (owned maps are limited to 2M tiles).
+	constexpr float MaxCoordinate = 1000000000.0f;
+	return std::isfinite(Pos.x) && std::isfinite(Pos.y) && std::abs(Pos.x) < MaxCoordinate && std::abs(Pos.y) < MaxCoordinate;
+}
+
 bool IsAvoidTile(int Tile, bool Unfreeze)
 {
 	return Tile == TILE_FREEZE || Tile == TILE_DFREEZE || Tile == TILE_LFREEZE ||
@@ -128,6 +137,11 @@ void CMalinkaAvoidFreeze::ApplyAvoid(CNetObj_PlayerInput &Input, int64_t LastAct
 	if(!Captured.CopyWorldIndependent(&GameClient()->m_PredictedWorld))
 		return;
 	Captured.m_WorldConfig.m_PredictEvents = false;
+	// When teleport entrances are forbidden, leave the private character at the
+	// entrance so the post-tick detector can see it. Otherwise Best teleports it
+	// to an exit during HandleTiles, hiding the entrance from a position probe.
+	if(Tiles.m_Teles)
+		Captured.m_WorldConfig.m_PredictTeleports = false;
 
 	auto Evaluate = [&](const CNetObj_PlayerInput &Candidate, const Malinka::CAvoidSequence *pSequence, int Ticks) -> Malinka::SAvoidPrediction {
 		CGameWorld World;
@@ -146,7 +160,7 @@ void CMalinkaAvoidFreeze::ApplyAvoid(CNetObj_PlayerInput &Input, int64_t LastAct
 			if(!pCharacter)
 				return {}; // No valid starting character is not a safe path.
 			const vec2 Before = pCharacter->GetPos();
-			if(!std::isfinite(Before.x) || !std::isfinite(Before.y))
+			if(!ValidAvoidPosition(Before))
 				return {};
 			if(AvoidDangerAt(*World.Collision(), Before, Tiles, Step + 1))
 				return {Malinka::EAvoidPrediction::DANGER, Step + 1};
@@ -156,7 +170,7 @@ void CMalinkaAvoidFreeze::ApplyAvoid(CNetObj_PlayerInput &Input, int64_t LastAct
 			if(!pCharacter)
 				return {Malinka::EAvoidPrediction::DANGER, Step + 1};
 			const vec2 After = pCharacter->GetPos();
-			if(!std::isfinite(After.x) || !std::isfinite(After.y))
+			if(!ValidAvoidPosition(After))
 				return {};
 			if(pCharacter->m_FreezeTime > 0 || pCharacter->Core()->m_DeepFrozen || pCharacter->Core()->m_LiveFrozen ||
 				AvoidDangerAt(*World.Collision(), After, Tiles, Step + 1) ||
@@ -239,6 +253,11 @@ void CMalinkaAvoidFreeze::ApplyAvoid(CNetObj_PlayerInput &Input, int64_t LastAct
 			const float Angle = BaseAngle + Offset * pi / 180.0f;
 			Candidate.m_TargetX = static_cast<int>(std::cos(Angle) * 1000.0f);
 			Candidate.m_TargetY = static_cast<int>(std::sin(Angle) * 1000.0f);
+			// Integer network quantization can move an edge sample just outside
+			// the requested FOV. Test the actual packet aim, not the float ray.
+			const vec2 PacketAim = normalize(vec2(Candidate.m_TargetX, Candidate.m_TargetY));
+			if(g_Config.m_MalinkaAvoidBlatantAimbotFov < 360 && dot(BaseAim, PacketAim) < std::cos(g_Config.m_MalinkaAvoidBlatantAimbotFov * pi / 360.0f))
+				continue;
 			if(!Consider(Candidate, std::abs(Offset)))
 				return;
 		}
