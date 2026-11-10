@@ -650,6 +650,7 @@ void CGameClient::OnInput(const IInput::CEvent &Event)
 		{
 			m_MalinkaSession.Panic();
 			m_Menus.HideMalinka();
+			m_GameConsole.RefreshLocalCommandVisibility();
 		}
 		return; // Do not deliver an unmatched release to a bind.
 	}

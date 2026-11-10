@@ -860,9 +860,6 @@ void RenderMalinkaAvoid(CMenus *pMenus, CUIRect MainView)
 	DoMalinkaDropDown(pMenus, MainView, "", g_Config.m_MalinkaAvoidMode, s_aAvoidModes, s_AvoidModeState, s_AvoidModeScroll, 0.0f);
 	MainView.HSplitTop(gs_MalinkaMargin + gs_MalinkaMarginSmall, nullptr, &MainView);
 
-	if(g_Config.m_MalinkaAvoidMode == 0)
-		return;
-
 	static CMalinkaScrollState s_ScrollState;
 	CUIRect LeftView, RightView;
 	BeginMalinkaScrollColumns(MainView, s_ScrollState, LeftView, RightView);
@@ -891,8 +888,12 @@ void RenderMalinkaAvoid(CMenus *pMenus, CUIRect MainView)
 	{
 		static const SBoolEntry s_aChecks[] = {
 			{Localize("Player Prediction"), &g_Config.m_MalinkaAvoidBlatantPlayerPrediction},
+			{Localize("NSIF (No Safe Input Found)"), &g_Config.m_MalinkaAvoidBlatantNsif},
+			{Localize("Afk Protection"), &g_Config.m_MalinkaAvoidBlatantAfkProtection},
 		};
 		DoMalinkaCheckBoxes(pMenus, Column, s_aChecks, std::size(s_aChecks));
+		if(g_Config.m_MalinkaAvoidBlatantAfkProtection)
+			DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantAfkTime, Localize("Seconds"), 1, 120);
 	}
 	else if(g_Config.m_MalinkaAvoidMode == 3)
 	{
@@ -933,10 +934,15 @@ void RenderMalinkaAvoid(CMenus *pMenus, CUIRect MainView)
 		}
 		else if(g_Config.m_MalinkaAvoidMode == 2)
 		{
-			DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantMaxTicks, Localize("Check Ticks"), 0, 30);
-			DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantMinTicks, Localize("Kick in Ticks"), 0, 30);
+			DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantCheckTicks, Localize("Check Ticks"), 1, 60);
+			DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantKickInTicks, Localize("Kick in Ticks"), 1, 60);
 			DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantHook, Localize("Hook"), &g_Config.m_MalinkaAvoidBlatantHook, &Column, gs_MalinkaLineSize);
-			DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantCanSetDir, Localize("Direction"), &g_Config.m_MalinkaAvoidBlatantCanSetDir, &Column, gs_MalinkaLineSize);
+			int DirectionEnabled = g_Config.m_MalinkaAvoidBlatantDirection && g_Config.m_MalinkaAvoidBlatantCanSetDir;
+			if(DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantDirection, Localize("Direction"), &DirectionEnabled, &Column, gs_MalinkaLineSize))
+				g_Config.m_MalinkaAvoidBlatantDirection = g_Config.m_MalinkaAvoidBlatantCanSetDir = DirectionEnabled;
+			DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantTrackPoint, Localize("Track Point"), &g_Config.m_MalinkaAvoidBlatantTrackPoint, &Column, gs_MalinkaLineSize);
+			DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantSafeAimTracking, Localize("Safe Aim Tracking"), &g_Config.m_MalinkaAvoidBlatantSafeAimTracking, &Column, gs_MalinkaLineSize);
+			DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidTileAutoDrag, Localize("Auto Drag"), &g_Config.m_MalinkaAvoidTileAutoDrag, &Column, gs_MalinkaLineSize);
 		}
 		FinishMalinkaSection(Column, s_ScrollState, SettingsSection);
 	}
@@ -966,6 +972,35 @@ void RenderMalinkaAvoid(CMenus *pMenus, CUIRect MainView)
 	}
 	else if(g_Config.m_MalinkaAvoidMode == 2)
 	{
+		const size_t TilesSection = BeginMalinkaSection(pMenus, Column, s_ScrollState, Localize("Tiles"));
+		static const SBoolEntry s_aTiles[] = {
+			{Localize("Teles"), &g_Config.m_MalinkaAvoidBlatantTeles},
+			{Localize("Death"), &g_Config.m_MalinkaAvoidBlatantDeath},
+			{Localize("Unfreeze"), &g_Config.m_MalinkaAvoidBlatantUnfreeze},
+		};
+		DoMalinkaCheckBoxes(pMenus, Column, s_aTiles, std::size(s_aTiles));
+		if(g_Config.m_MalinkaAvoidBlatantUnfreeze)
+			DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantUnfreezeTicks, Localize("Ticks"), 1, 30);
+		FinishMalinkaSection(Column, s_ScrollState, TilesSection);
+
+		Column.HSplitTop(gs_MalinkaSectionSpacing, nullptr, &Column);
+		const size_t AimSection = BeginMalinkaSection(pMenus, Column, s_ScrollState, Localize("Aimbot"));
+		DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantAimbot, Localize("Enable"), &g_Config.m_MalinkaAvoidBlatantAimbot, &Column, gs_MalinkaLineSize);
+		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantAimbotSegments, Localize("Segments"), 1, 180);
+		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantAimbotFov, Localize("FOV"), 1, 360);
+		static std::array<const char *, 2> s_aAimModes = {Localize("Auto Aim"), Localize("Aim Assist")};
+		static CUi::SDropDownState s_AimModeState;
+		static CScrollRegion s_AimModeScroll;
+		DoMalinkaDropDown(pMenus, Column, Localize("Mode"), g_Config.m_MalinkaAvoidBlatantAimbotMode, s_aAimModes, s_AimModeState, s_AimModeScroll);
+		FinishMalinkaSection(Column, s_ScrollState, AimSection);
+
+		Column.HSplitTop(gs_MalinkaSectionSpacing, nullptr, &Column);
+		const size_t VisualsSection = BeginMalinkaSection(pMenus, Column, s_ScrollState, Localize("Visuals"));
+		DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantVisualTrackPoint, Localize("Track Point"), &g_Config.m_MalinkaAvoidBlatantVisualTrackPoint, &Column, gs_MalinkaLineSize);
+		DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantVisualAimbot, Localize("Aimbot"), &g_Config.m_MalinkaAvoidBlatantVisualAimbot, &Column, gs_MalinkaLineSize);
+		FinishMalinkaSection(Column, s_ScrollState, VisualsSection);
+
+		Column.HSplitTop(gs_MalinkaSectionSpacing, nullptr, &Column);
 		const size_t FreezeResetSection = BeginMalinkaSection(pMenus, Column, s_ScrollState, Localize("Freeze Reset"));
 		DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantFreezeReset, Localize("Freeze Reset"), &g_Config.m_MalinkaAvoidBlatantFreezeReset, &Column, gs_MalinkaLineSize);
 		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantFreezeResetWait, Localize("Freeze Reset Wait"), 0, 10);
@@ -974,8 +1009,6 @@ void RenderMalinkaAvoid(CMenus *pMenus, CUIRect MainView)
 
 		Column.HSplitTop(gs_MalinkaSectionSpacing, nullptr, &Column);
 		const size_t GoresSection = BeginMalinkaSection(pMenus, Column, s_ScrollState, Localize("Gores"));
-		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantVelocityTickFactor, Localize("Velocity Push"), 1, 50);
-		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidBlatantAimbotFov, Localize("Avoid freeze fov"), 0, 360);
 		DoMalinkaCheckBox(pMenus, &g_Config.m_MalinkaAvoidBlatantOnlyHorizontally, Localize("Avoid Freeze Only Horizontally"), &g_Config.m_MalinkaAvoidBlatantOnlyHorizontally, &Column, gs_MalinkaLineSize);
 		FinishMalinkaSection(Column, s_ScrollState, GoresSection);
 	}

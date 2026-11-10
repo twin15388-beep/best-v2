@@ -1,6 +1,6 @@
 # Malinka: фактический статус и незавершённые требования
 
-Дата: **2026-11-10**. Версия fork **0.1.0**, экспериментальная адаптация. **Запрос «все функции KRX Ultimate 1.32» ещё не выполнен.** Наличие вкладок, config variables и успешной компиляции не означает полного переноса или проверки в игре.
+Дата: **2026-11-10**. Версия fork **0.1.1**, экспериментальная адаптация. **Запрос «все функции KRX Ultimate 1.32» ещё не выполнен.** Наличие вкладок, config variables и успешной компиляции не означает полного переноса или проверки в игре.
 
 ## Критерии исходного запроса
 
@@ -9,13 +9,13 @@
 | Вкладка `malinka` и все функции KRX Ultimate 1.32 | Вкладка и набор реальных consumers добавлены; перенос неполный, точная эквивалентность закрытому KRX не установлена. Отсутствующие функции ниже. |
 | Обновления без потери Malinka | Официальный канал замены EXE заблокирован; написаны отдельный fork channel, checked installer/rollback и generator пакетов. Опубликованного и end-to-end проверенного канала релизов пока нет. Произвольные будущие upstream updates не гарантируются. |
 | Не получать `fake` у других игроков | **Не выполнено.** Требуется авторизация fork внешним сервисом индикаторов и проверка из второго немодифицированного BestClient. Локальная картинка/возврат `false` не подменяют этот результат. |
-| `Insert` скрывает cheat UI до «перезайти» | Session latch и проверки menu navigation/search/dispatch реализованы. Принята интерпретация **до полного перезапуска процесса**, не reconnect. Это **UI-only**: функции не отключаются. В реальном UI ещё не проверено. |
+| `Insert` скрывает cheat UI до «перезайти» | Session latch и проверки menu navigation/search/dispatch реализованы; добавлен presentation-only фильтр Malinka suggestions/setting arguments/help в F1. Commands/binds/config/history не удаляются, F2 не меняется. Принята интерпретация **до полного перезапуска процесса**, не reconnect. Это **UI-only**: функции не отключаются. В реальном UI ещё не проверено. |
 
 ## Реальные реализации в коде, не игровые гарантии
 
 - `aimbot.{h,cpp}` / `controls.cpp`: hook и weapon targeting, FOV/priority/friend filtering, silent/visible aim, bounded scans, auto fire scheduling. Grenade movement prediction и точная KRX-эквивалентность отсутствуют.
 - `controls.cpp`, `autoaled.cpp`, `laserunfreeze.cpp`, `autoedge.cpp`: реальные input consumers для basic movement/helpers, nearest-hook/balance/pixelwalk, rehook, auto Aled, laser/shotgun self-hit поиска, basic edge detection. Уровень алгоритмов отличается от официального KRX; расширенные режимы не дописаны.
-- `avoidfreeze.cpp`: basic Legit/Blatant candidates; независимые physics copies. Невозможность прогнозирования отличена от безопасного движения: **UNAVAILABLE / SAFE / DANGER**. Отказ capture/alloc не разрешает принять safe candidate. Много настроек этих режимов ещё gated.
+- `avoid_policy.h` / `avoidfreeze.cpp`: независимая bounded UCT реализация Legit (Quality ≤64 full-horizon simulations, Randomness — exploration constant, direction/hook/life reward weights) и Blatant constant-candidate scan. AFK в секундах по raw key/mouse activity, реальные Check/Kick-in Ticks, assistance constraints, tile toggles, hard-FOV/segments и revalidated cached-input NSIF. Basic side probe больше не меняет Direction других modes. Сборщик input сохраняет выбранный Avoid aim. Это **не восстановленный алгоритм KRX**, не полная sequence parity Blatant и не gameplay guarantee. Отказ capture/alloc остаётся **UNAVAILABLE**, не safety. Player Prediction/track point/auto drag/visuals ещё gated.
 - `fent.cpp`: локальный planner, bounded candidate slices, finish/flowfield/path drawing, replay export. Planning и исполнение используют один captured dummy input, записываются обе дорожки. Изменение slot/participant identity останавливает текущий run. Полная KRX Fent Light/jump-render/weapon-priority/unfreeze parity отсутствует.
 - `tas.cpp`: отдельный мир recording, main/dummy input tracks, 50 TPS, sliced rewind/validation, playback input domain separation, map hash/physics checks, path/markers/events/sound, resource limits и safe saves. Это собственный `MALINKATAS2`, **не официальный KRX Ultimate format**. Добавлен строгий importer измеренной zlib/JSON-схемы и raw vault sync; replay fake-aim transformation отсутствует. Подробные границы ниже.
 - `simulation_step.h`: общий checked direct-input → increment tick → predicted-input → world tick. Direct inputs сортируются по client ID; указатели entities переопределяются после мутаций. Отказ должен остановить/отбросить соответствующую private simulation.
@@ -47,6 +47,16 @@
 - `replay_vault_io.h`: CRC/path/type/resource checks, native bounded traversal, hash verification уже существующего cache, no-replace publication в `malinka/replays/vault/<sha>`. Work только в принадлежащих job `malinka/vault-cache/staging-*`; cleanup не удаляет user files/published snapshots и может оставить staging при устойчивой ошибке. ZIP ≤32 MiB, member ≤4 MiB, expanded ≤64 MiB, ≤4096 entries/1024 replays/depth6. Общие updater defaults **не уменьшены**.
 - Vault сохраняет **raw community files**; sync ничего автоматически не конвертирует/загружает/воспроизводит. Текущий community `main` не выдан за набор именно Ultimate 1.32.
 
+## Исправления после пользовательского теста 0.1.0
+
+Пользователь сообщил, что часть работает, но Avoid отличается и `fake` остаётся. Уточнил: Insert должен скрывать вкладку и команды. Реализован **UI-only** режим для меню и F1 completion/help, не удаление команд/истории и не защита файлов от обнаружения. Имена/attribution KRX/TAS в исходниках и форматах не замаскированы.
+
+Новые controls/layout сверены с зафиксированными `features/goresbot/{legit,blatant}.md` из docs commit `8c193ca2a27cc7ba5d4e2d6ad7686c6e99910c43` (blobs `bb5e2342c09f13002bc2b98848ec6baa203b8b98`, `bdc356e2aa2e40234ea89145df6b84f39ed1dfad`). Эти документы не доказывают точные defaults/ranges или алгоритм бинарника 1.32. Старые donor MinTicks/MaxTicks/VelocityPush сохранены для чтения config, явно legacy/unavailable; они не подменяют Check/Kick-in Ticks. Direction checkbox отражает оба старых direction gates и переключает их согласованно.
+
+**Измерено сейчас:** standalone C++20 production policy/panic helpers, ASan+UBSan+LSan, `29469539 checks / 0 failures / 374400 rollouts / exit0`, включая все 1..60 horizons, 1..64 budgets, assistance combinations, AFK boundaries, FOV 1..360 / segments1..180, unavailable propagation и local-only name predicate. Это не actual-world/component/UI test. Full MSVC/Linux rebuild нового кода пока ожидается; старые успешные builds ниже относятся к 0.1.0.
+
+`fake` не исправлен: `client_indicator.cpp::IsPlayerFakeVersion` возвращает `!HasOfficialCode()` для local IDs, а внешний `PACKET_PEER_VERSION_STATE` / browser cache снабжает remote clients своими fake flags. Пустой `BESTCLIENT_OFFICIAL_CODE` в fork — реальный blocker. Не менялись service proofs, official code, local fake flag или версия Best в попытке имитировать официальную сборку.
+
 ## Последние измеренные builds/checks
 
 **Ни один пункт ниже не является Windows gameplay/renderer или внешней badge-проверкой.**
@@ -69,10 +79,13 @@
 
 ## Явно недоступные controls (71)
 
-Это **промежуточный gating**, а не согласованное сокращение исходного запроса. Реестр: `src/game/client/components/malinka/capabilities.h`; UI показывает причину и не включает такой control. `malinka_status` печатает ограничения в F1. Не все отсутствующие возможности имеют config, поэтому 71 — не число незавершённых игровых функций и не процент готовности.
+Это **промежуточный gating**, а не согласованное сокращение исходного запроса. Реестр: `src/game/client/components/malinka/capabilities.h`; UI показывает причину и не включает такой control. `malinka_status` печатает ограничения в F1. Не все отсутствующие возможности имеют config, поэтому 60 — не число незавершённых игровых функций и не процент готовности.
 
 | Config field | Причина |
 |---|---|
+| `MalinkaAvoidBlatantMinTicks` | Legacy donor control; use Check Ticks and Kick in Ticks instead. |
+| `MalinkaAvoidBlatantMaxTicks` | Legacy donor control; use Check Ticks and Kick in Ticks instead. |
+| `MalinkaAvoidBlatantVelocityTickFactor` | Legacy donor control; use Check Ticks and Kick in Ticks instead. |
 | `MalinkaAimbotGrenadeMovePrediction` | This prediction control has no runtime consumer yet. |
 | `MalinkaAutoEdgeDetectDeath` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAutoEdgeDetectFreeze` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
@@ -83,29 +96,15 @@
 | `MalinkaAutoEdgeSequenceLength` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAutoEdgeTopK` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAutoJumpSaveMode` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantAfkProtection` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantAfkTime` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantAimbotMode` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantAimbotSegments` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantCheckTicks` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantDeath` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantDirection` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantKickInTicks` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantNsif` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAvoidBlatantPlayerPrediction` | This prediction control has no runtime consumer yet. |
 | `MalinkaAvoidBlatantSafeAimTracking` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantTeles` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAvoidBlatantTrackPoint` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantUnfreeze` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidBlatantUnfreezeTicks` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAvoidBlatantVisualAimbot` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAvoidBlatantVisualTrackPoint` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAvoidFentPlayerPrediction` | This prediction control has no runtime consumer yet. |
 | `MalinkaAvoidFentTicks` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAvoidFentUnfreeze` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAvoidFentUnfreezeRadius` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidLegitHookPriority` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
-| `MalinkaAvoidLegitLifePriority` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAvoidLegitPlayerPrediction` | This prediction control has no runtime consumer yet. |
 | `MalinkaAvoidTileAutoDrag` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |
 | `MalinkaAvoidTileTrackPoints` | Not implemented in this adaptation yet; see docs/MALINKA_STATUS.md. |

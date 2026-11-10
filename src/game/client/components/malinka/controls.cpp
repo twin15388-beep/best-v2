@@ -109,12 +109,16 @@ void CControls::ApplyMalinkaInput(vec2 Pos)
 				GameClient()->m_MalinkaAimbot.PulseFire(m_aInputData[Dummy]);
 			GameClient()->m_MalinkaLaserUnfreeze.m_PendingSelfHitFireRelease[Dummy] = false;
 		}
-		if(LeftHeld || RightHeld || JumpHeld || HookHeld || FireHeld || m_aInputData[Dummy].m_NextWeapon || m_aInputData[Dummy].m_PrevWeapon || m_aInputData[Dummy].m_WantedWeapon)
+		const bool MouseMoved = IsMouseMoved(Dummy);
+		if(LeftHeld || RightHeld || JumpHeld || HookHeld || FireHeld || MouseMoved ||
+			m_aInputData[Dummy].m_NextWeapon != m_aLastData[Dummy].m_NextWeapon ||
+			m_aInputData[Dummy].m_PrevWeapon != m_aLastData[Dummy].m_PrevWeapon ||
+			m_aInputData[Dummy].m_WantedWeapon != m_aLastData[Dummy].m_WantedWeapon)
 			m_aMalinkaInputActivity[Dummy] = Now;
 
 		CCharacter *pLocalCharacter = nullptr;
-		if(!GameClient()->m_Snap.m_SpecInfo.m_Active && GameClient()->m_Snap.m_LocalClientId >= 0)
-			pLocalCharacter = GameClient()->m_PredictedWorld.GetCharacterById(GameClient()->m_Snap.m_LocalClientId);
+		if(!GameClient()->m_Snap.m_SpecInfo.m_Active)
+			pLocalCharacter = GameClient()->m_PredictedWorld.GetCharacterById(GameClient()->m_aLocalIds[Dummy]);
 		const int HookState = pLocalCharacter != nullptr ? pLocalCharacter->Core()->m_HookState : HOOK_IDLE;
 		const bool PulseTick = (Client()->PredGameTick(g_Config.m_ClDummy) & 1) != 0;
 
@@ -125,271 +129,30 @@ void CControls::ApplyMalinkaInput(vec2 Pos)
 		}
 
 		const vec2 RealAimPos = Pos;
-		if(g_Config.m_MalinkaAvoidfreeze && pLocalCharacter != nullptr)
+		// Basic is the only mode with the immediate side probe. It must not
+		// override disabled Direction assistance in the configurable modes.
+		if(g_Config.m_MalinkaAvoidfreeze && g_Config.m_MalinkaAvoidMode == 0 && pLocalCharacter != nullptr && GameClient()->Predict())
 		{
 			const int FreezeSide = GameClient()->m_MalinkaAvoidFreeze.DetectFreezeSide(pLocalCharacter->GetPos());
 			const bool MovingRight = m_aInputData[Dummy].m_Direction > 0 || pLocalCharacter->Core()->m_Vel.x > 0.35f;
 			const bool MovingLeft = m_aInputData[Dummy].m_Direction < 0 || pLocalCharacter->Core()->m_Vel.x < -0.35f;
 			if(FreezeSide > 0 && MovingRight && GameClient()->m_MalinkaAvoidFreeze.HasImmediateSideFreeze(pLocalCharacter, 1))
 				m_aInputData[Dummy].m_Direction = -1;
-			else if(FreezeSide < 0 && MovingLeft && GameClient()->m_MalinkaAvoidFreeze.HasImmediateSideFreeze(pLocalCharacter , - 1))
+			else if(FreezeSide < 0 && MovingLeft && GameClient()->m_MalinkaAvoidFreeze.HasImmediateSideFreeze(pLocalCharacter, -1))
 				m_aInputData[Dummy].m_Direction = 1;
 		}
-
-		if(g_Config.m_MalinkaAvoidfreeze && g_Config.m_MalinkaAvoidMode == 1)
+		if(g_Config.m_MalinkaAvoidfreeze && pLocalCharacter != nullptr)
 		{
-			GameClient()->m_MalinkaAvoidFreeze.MalinkaAvoidFreeze();
-			GameClient()->m_MalinkaAvoidFreeze.MalinkaHookAssist();
-			if(GameClient()->m_MalinkaAvoidFreeze.m_AvoidForcing[Dummy] && Now <= GameClient()->m_MalinkaAvoidFreeze.m_AvoidForceUntil[Dummy])
-				m_aInputData[Dummy].m_Direction = GameClient()->m_MalinkaAvoidFreeze.m_AvoidForcedDir[Dummy];
-			else
-				GameClient()->m_MalinkaAvoidFreeze.m_AvoidForcing[Dummy] = false;
+			GameClient()->m_MalinkaAvoidFreeze.ApplyAvoid(m_aInputData[Dummy], m_aMalinkaInputActivity[Dummy]);
+			// The common output stage writes SentAimPos back into the packet.
+			// Previously it silently discarded every Avoid aim adjustment.
+			SentAimPos = vec2(m_aInputData[Dummy].m_TargetX, m_aInputData[Dummy].m_TargetY);
 		}
-
-		if(g_Config.m_MalinkaAvoidfreeze && g_Config.m_MalinkaAvoidMode == 2 && pLocalCharacter != nullptr)
+		if(g_Config.m_MalinkaAvoidfreeze && g_Config.m_MalinkaAvoidMode == 2 && pLocalCharacter != nullptr && GameClient()->Predict())
 		{
-			const int LocalId = GameClient()->m_Snap.m_LocalClientId;
+			const int LocalId = GameClient()->m_aLocalIds[Dummy];
 			const vec2 LocalPos = pLocalCharacter->GetPos();
-			const vec2 LocalVel = pLocalCharacter->Core()->m_Vel;
-			const bool DetectFreeze = true;
-			const bool DetectDeath = false;
-			const bool DetectTele = false;
-			const bool DetectUnfreeze = false;
-			const float VelocityFactor = std::max(0.1f, g_Config.m_MalinkaAvoidBlatantVelocityTickFactor / 10.0f);
-			const int PredictTicks = std::clamp((int)(length(LocalVel) / VelocityFactor), std::min(g_Config.m_MalinkaAvoidBlatantMinTicks, g_Config.m_MalinkaAvoidBlatantMaxTicks), std::max(g_Config.m_MalinkaAvoidBlatantMinTicks, g_Config.m_MalinkaAvoidBlatantMaxTicks));
-			const CNetObj_DDNetCharacter *pData = &GameClient()->m_Snap.m_aCharacters[LocalId].m_ExtendedData;
-			const bool FrozenNow = (pData && pData->m_FreezeEnd > 0) || GameClient()->m_MalinkaAvoidFreeze.IsBlatantFrozenAtPos(LocalPos);
-
-			auto InBlatantFov = [&](vec2 AimDir) {
-				const vec2 BaseAim = normalize(EnsureValidAim(RealAimPos));
-				if(g_Config.m_MalinkaAvoidBlatantAimbotFov >= 360)
-					return true;
-				const float FovCos = cosf(g_Config.m_MalinkaAvoidBlatantAimbotFov * pi / 360.0f);
-				return dot(BaseAim, normalize(AimDir)) >= FovCos;
-			};
-
-			if(!FrozenNow && GameClient()->m_MalinkaAvoidFreeze.SimulateBlatantFreezeTick(m_aInputData[Dummy], PredictTicks, DetectFreeze, DetectDeath, DetectTele, DetectUnfreeze) >= 0)
-			{
-				if(g_Config.m_MalinkaAvoidBlatantOnlyHorizontally)
-				{
-					for(int Dir = -1; Dir <= 1; Dir += 2)
-					{
-						CNetObj_PlayerInput Input = m_aInputData[Dummy];
-						Input.m_Direction = Dir;
-						if(GameClient()->m_MalinkaAvoidFreeze.SimulateBlatantFreezeTick(Input, PredictTicks, DetectFreeze, DetectDeath, DetectTele, DetectUnfreeze) < 0)
-						{
-							m_aInputData[Dummy].m_Direction = Dir;
-							break;
-						}
-					}
-				}
-				else
-				{
-					CNetObj_PlayerInput TempInput = m_aInputData[Dummy];
-
-					if(g_Config.m_MalinkaAvoidBlatantCanSetDir)
-					{
-						for(int Dir = -1; Dir <= 1; Dir += 2)
-						{
-							CNetObj_PlayerInput TryInput = TempInput;
-							TryInput.m_Direction = Dir;
-							if(GameClient()->m_MalinkaAvoidFreeze.SimulateBlatantFreezeTick(TryInput, PredictTicks, DetectFreeze, DetectDeath, DetectTele, DetectUnfreeze) < 0)
-							{
-								m_aInputData[Dummy].m_Direction = Dir;
-								goto BlatantFreezeReset;
-							}
-						}
-					}
-
-					const bool FullSweep360 = g_Config.m_MalinkaAvoidBlatantAimbotFov >= 360;
-					float BaseAngle = atan2f(RealAimPos.y, RealAimPos.x);
-					int BaseDeg = (int)(BaseAngle * 180.0f / pi);
-					if(BaseDeg < 0)
-						BaseDeg += 360;
-
-					int BestDangerTick = -2;
-					CNetObj_PlayerInput BestImmediateInput = TempInput;
-					bool FoundImmediate = false;
-					for(int Hook = 0; Hook <= (g_Config.m_MalinkaAvoidBlatantHook ? 1 : 0); Hook++)
-					{
-						for(int Offset = 0; Offset < 360; Offset += 10)
-						{
-							const int AngleDeg = FullSweep360 ? Offset : (BaseDeg + Offset) % 360;
-							const float Angle = AngleDeg * pi / 180.0f;
-							const vec2 AimDir = vec2(cosf(Angle), sinf(Angle));
-
-							CNetObj_PlayerInput TryInput = TempInput;
-							TryInput.m_Hook = Hook;
-							const vec2 NormalAim = normalize(EnsureValidAim(AimDir));
-							TryInput.m_TargetX = (int)(NormalAim.x * 200.0f);
-							TryInput.m_TargetY = (int)(NormalAim.y * 200.0f);
-
-							const int CandidateDangerTick = GameClient()->m_MalinkaAvoidFreeze.SimulateBlatantFreezeTick(TryInput, PredictTicks, DetectFreeze, DetectDeath, DetectTele, DetectUnfreeze);
-							if(CandidateDangerTick < 0)
-							{
-								float Score = 0.0f;
-								if(Hook)
-									Score += 8.0f;
-								if(AimDir.y < -0.15f)
-									Score += 4.0f;
-								if(InBlatantFov(AimDir))
-									Score += 2.0f;
-								if(!FullSweep360)
-									Score += absolute((float)Offset) * 0.01f;
-								if(!FoundImmediate || Score > BestDangerTick)
-								{
-									BestDangerTick = (int)(Score * 1000.0f);
-									BestImmediateInput = TryInput;
-									FoundImmediate = true;
-								}
-							}
-						}
-					}
-					if(FoundImmediate)
-					{
-						m_aInputData[Dummy] = BestImmediateInput;
-						goto BlatantFreezeReset;
-					}
-
-					if(g_Config.m_MalinkaAvoidBlatantCanSetDir)
-					{
-						int BestCombinedScore = -1000000000;
-						CNetObj_PlayerInput BestCombinedInput = TempInput;
-						bool FoundCombined = false;
-						for(int Dir = -1; Dir <= 1; Dir += 2)
-						{
-							for(int Hook = 0; Hook <= (g_Config.m_MalinkaAvoidBlatantHook ? 1 : 0); Hook++)
-							{
-								for(int Offset = 0; Offset < 360; Offset += 15)
-								{
-									const int AngleDeg = FullSweep360 ? Offset : (BaseDeg + Offset) % 360;
-									const float Angle = AngleDeg * pi / 180.0f;
-									const vec2 AimDir = vec2(cosf(Angle), sinf(Angle));
-
-									CNetObj_PlayerInput TryInput = TempInput;
-									TryInput.m_Direction = Dir;
-									TryInput.m_Hook = Hook;
-									const vec2 NormalAim = normalize(EnsureValidAim(AimDir));
-									TryInput.m_TargetX = (int)(NormalAim.x * 200.0f);
-									TryInput.m_TargetY = (int)(NormalAim.y * 200.0f);
-
-									const int CandidateDangerTick = GameClient()->m_MalinkaAvoidFreeze.SimulateBlatantFreezeTick(TryInput, PredictTicks, DetectFreeze, DetectDeath, DetectTele, DetectUnfreeze);
-									if(CandidateDangerTick < 0)
-									{
-										int Score = 0;
-										if(Hook)
-											Score += 8000;
-										if(AimDir.y < -0.15f)
-											Score += 4000;
-										if(InBlatantFov(AimDir))
-											Score += 2000;
-										if(Dir == 0 || (LocalVel.x > 0.0f ? 1 : (LocalVel.x < 0.0f ? -1 : 0)) == Dir)
-											Score += 1000;
-										if(!FullSweep360)
-											Score += Offset;
-										if(!FoundCombined || Score > BestCombinedScore)
-										{
-											BestCombinedScore = Score;
-											BestCombinedInput = TryInput;
-											FoundCombined = true;
-										}
-									}
-								}
-							}
-						}
-						if(FoundCombined)
-						{
-							m_aInputData[Dummy] = BestCombinedInput;
-							goto BlatantFreezeReset;
-						}
-					}
-
-					if(TempInput.m_Hook)
-					{
-						CNetObj_PlayerInput Tick1 = TempInput;
-						Tick1.m_Hook = 0;
-						if(GameClient()->m_MalinkaAvoidFreeze.SimulateBlatantFreezeTick(Tick1, 1, DetectFreeze, DetectDeath, DetectTele, DetectUnfreeze) < 0)
-						{
-							m_aInputData[Dummy].m_Hook = 0;
-							goto BlatantFreezeReset;
-						}
-
-						int BestReleaseScore = -1000000000;
-						CNetObj_PlayerInput BestReleaseInput = TempInput;
-						bool FoundRelease = false;
-						for(int AngleDeg = 0; AngleDeg < 360; AngleDeg += 10)
-						{
-							const float Angle = AngleDeg * pi / 180.0f;
-							const vec2 AimDir = vec2(cosf(Angle), sinf(Angle));
-
-							CNetObj_PlayerInput Tick2 = TempInput;
-							Tick2.m_Hook = 1;
-							const vec2 NormalAim = normalize(EnsureValidAim(AimDir));
-							Tick2.m_TargetX = (int)(NormalAim.x * 200.0f);
-							Tick2.m_TargetY = (int)(NormalAim.y * 200.0f);
-
-							if(GameClient()->m_MalinkaAvoidFreeze.SimulateBlatantFreezeTick(Tick2, 1, DetectFreeze, DetectDeath, DetectTele, DetectUnfreeze) < 0)
-							{
-								int Score = 0;
-								if(AimDir.y < -0.15f)
-									Score += 4000;
-								if(InBlatantFov(AimDir))
-									Score += 2000;
-								Score += AngleDeg;
-								if(!FoundRelease || Score > BestReleaseScore)
-								{
-									BestReleaseScore = Score;
-									BestReleaseInput = Tick2;
-									FoundRelease = true;
-								}
-							}
-						}
-						if(FoundRelease)
-						{
-							m_aInputData[Dummy].m_TargetX = BestReleaseInput.m_TargetX;
-							m_aInputData[Dummy].m_TargetY = BestReleaseInput.m_TargetY;
-							goto BlatantFreezeReset;
-						}
-					}
-
-					int BestFreezeTick = -1;
-					CNetObj_PlayerInput BestInput = TempInput;
-					for(int Dir = g_Config.m_MalinkaAvoidBlatantCanSetDir ? -1 : 0; Dir <= (g_Config.m_MalinkaAvoidBlatantCanSetDir ? 1 : 0); Dir += g_Config.m_MalinkaAvoidBlatantCanSetDir ? 1 : 1)
-					{
-						for(int Hook = 0; Hook <= 1; Hook++)
-						{
-							for(int Offset = 0; Offset < 360; Offset += 15)
-							{
-								const int AngleDeg = (BaseDeg + Offset) % 360;
-								const float Angle = AngleDeg * pi / 180.0f;
-								const vec2 AimDir = vec2(cosf(Angle), sinf(Angle));
-
-								CNetObj_PlayerInput TryInput = TempInput;
-								if(g_Config.m_MalinkaAvoidBlatantCanSetDir)
-									TryInput.m_Direction = Dir;
-								TryInput.m_Hook = Hook;
-								const vec2 NormalAim = normalize(EnsureValidAim(AimDir));
-								TryInput.m_TargetX = (int)(NormalAim.x * 200.0f);
-								TryInput.m_TargetY = (int)(NormalAim.y * 200.0f);
-
-								const int FreezeTick = GameClient()->m_MalinkaAvoidFreeze.SimulateBlatantFreezeTick(TryInput, PredictTicks, DetectFreeze, DetectDeath, DetectTele, DetectUnfreeze);
-								if(InBlatantFov(AimDir) && FreezeTick > BestFreezeTick)
-								{
-									BestFreezeTick = FreezeTick;
-									BestInput = TryInput;
-								}
-							}
-						}
-					}
-
-					if(BestFreezeTick > 0)
-					{
-						m_aInputData[Dummy] = BestInput;
-					}
-				}
-			}
-
-BlatantFreezeReset:
+			const bool FrozenNow = pLocalCharacter->m_FreezeTime > 0 || pLocalCharacter->Core()->m_DeepFrozen || pLocalCharacter->Core()->m_LiveFrozen;
 			if(g_Config.m_MalinkaAvoidBlatantFreezeReset)
 			{
 				if(FrozenNow)
@@ -421,9 +184,8 @@ BlatantFreezeReset:
 		}
 		else
 		{
-			GameClient()->m_MalinkaAvoidFreeze.m_BlatantTrackPointInit[Dummy] = false;
-			GameClient()->m_MalinkaAvoidFreeze.m_BlatantHookHoldTicks[Dummy] = 0;
-			GameClient()->m_MalinkaAvoidFreeze.m_BlatantHookTarget[Dummy] = vec2(0.0f, 0.0f);
+			GameClient()->m_MalinkaAvoidFreeze.m_BlatantFreezeResetFrozenLast[Dummy] = false;
+			GameClient()->m_MalinkaAvoidFreeze.m_BlatantFreezeResetSince[Dummy] = 0;
 		}
 
 		if(g_Config.m_MalinkaPixelWalk && (LeftHeld != RightHeld) && !PulseTick)

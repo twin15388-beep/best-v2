@@ -224,6 +224,7 @@ public:
 	void Toggle(int Type);
 	bool IsActive() const { return m_ConsoleState != CONSOLE_CLOSED; }
 
+	void RefreshLocalCommandVisibility();
 	void ForceUpdateRemoteCompletionSuggestions();
 };
 #endif

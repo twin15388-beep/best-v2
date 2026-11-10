@@ -346,6 +346,19 @@ void CGameConsole::CInstance::Reset()
 	m_CompletionDirty = true;
 }
 
+void CGameConsole::RefreshLocalCommandVisibility()
+{
+	// Invalidate an already-open completion list immediately. Do not clear
+	// console history/backlog/input, or touch remote/server command lists.
+	m_LocalConsole.m_CompletionChosen = -1;
+	m_LocalConsole.m_CompletionChosenArgument = -1;
+	m_LocalConsole.m_QueueResetAnimation = true;
+	m_LocalConsole.m_CompletionDirty = true;
+	m_LocalConsole.UpdateCompletionSuggestions();
+	if(GameClient()->m_MalinkaSession.IsConsoleCommandHidden(m_LocalConsole.m_pCommandName))
+		m_LocalConsole.m_IsCommand = false;
+}
+
 void CGameConsole::ForceUpdateRemoteCompletionSuggestions()
 {
 	m_RemoteConsole.m_CompletionDirty = true;
@@ -377,6 +390,8 @@ void CGameConsole::CInstance::UpdateCompletionSuggestions()
 	const bool RemoteConsoleCompletion = m_Type == CGameConsole::CONSOLETYPE_REMOTE && m_pGameConsole->Client()->RconAuthed();
 	const bool UseTempCommands = RemoteConsoleCompletion && m_pGameConsole->Client()->UseTempRconCommands();
 	m_pGameConsole->m_pConsole->PossibleCommands(aSearch, m_CompletionFlagmask, UseTempCommands, CollectPossibleCommandsCallback, &m_vpCommandSuggestions);
+	if(m_Type == CGameConsole::CONSOLETYPE_LOCAL)
+		std::erase_if(m_vpCommandSuggestions, [&](const char *pName) { return m_pGameConsole->GameClient()->m_MalinkaSession.IsConsoleCommandHidden(pName); });
 	SortCompletions(m_vpCommandSuggestions, aSearch);
 
 	// Argument completion
@@ -391,6 +406,8 @@ void CGameConsole::CInstance::UpdateCompletionSuggestions()
 			m_pGameConsole->m_pConsole->PossibleCommands(m_aCompletionBufferArgument, m_CompletionFlagmask, UseTempCommands, CollectPossibleCommandsCallback, &m_vpArgumentSuggestions);
 		else if(CompletionType == EArgumentCompletionType::KEY)
 			PossibleKeys(m_aCompletionBufferArgument, m_pGameConsole->Input(), CollectPossibleCommandsCallback, &m_vpArgumentSuggestions);
+		if(m_Type == CGameConsole::CONSOLETYPE_LOCAL && CompletionType == EArgumentCompletionType::SETTING)
+			std::erase_if(m_vpArgumentSuggestions, [&](const char *pName) { return m_pGameConsole->GameClient()->m_MalinkaSession.IsConsoleCommandHidden(pName); });
 		SortCompletions(m_vpArgumentSuggestions, m_aCompletionBufferArgument);
 	}
 
@@ -749,7 +766,7 @@ bool CGameConsole::CInstance::OnInput(const IInput::CEvent &Event)
 
 			const IConsole::ICommandInfo *pCommand = m_pGameConsole->m_pConsole->GetCommandInfo(aBuf, m_CompletionFlagmask,
 				m_Type != CGameConsole::CONSOLETYPE_LOCAL && m_pGameConsole->Client()->RconAuthed() && m_pGameConsole->Client()->UseTempRconCommands());
-			if(pCommand)
+			if(pCommand && !(m_Type == CGameConsole::CONSOLETYPE_LOCAL && m_pGameConsole->GameClient()->m_MalinkaSession.IsConsoleCommandHidden(pCommand->Name())))
 			{
 				m_IsCommand = true;
 				m_pCommandName = pCommand->Name();

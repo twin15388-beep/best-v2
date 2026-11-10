@@ -30,6 +30,10 @@ Best-основа содержит DDNet **20.1.1** / TClient **10.9.0**, а KRX
 
 `docs/BESTCLIENT_UPSTREAM.md` — сохранённый README исходной Best-основы. Его screenshots и утверждения описывают upstream, а не результаты проверки этого fork.
 
+### Avoid 0.1.1: independent repair, not recovered original code
+
+`avoid_policy.h` и переписанный bot consumer `avoidfreeze.cpp` реализуют собственный bounded UCT/constant-input search по семантике зафиксированных docs. Source blobs для `features/goresbot/legit.md`: `bb5e2342c09f13002bc2b98848ec6baa203b8b98`; `blatant.md`: `bdc356e2aa2e40234ea89145df6b84f39ed1dfad`. Нормализация весов, budgets, candidate ordering и NSIF revalidation являются решениями этой адаптации, а не измеренными constants закрытого EXE. Сохранённые movement probes всё ещё атрибутированы Pasta. Точная 1.32 UI/ranges/physics equivalence не заявляется.
+
 ## Входные бинарники: измерено отдельно
 
 ### KRX

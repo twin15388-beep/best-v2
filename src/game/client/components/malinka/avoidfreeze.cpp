@@ -1,39 +1,27 @@
-// Derived from Pasta-Client dd7f5cd8c73ecb7259dba4f9dd9a7134babc890f; modified for BestClient.
-// See docs/MALINKA_SOURCES.md and license.txt.
-#include "simulation_step.h"
-#include <base/time.h>
+// Derived movement probes from Pasta-Client dd7f5cd8c73ecb7259dba4f9dd9a7134babc890f.
+// Avoid policy rewritten for BestClient; see docs/MALINKA_SOURCES.md and license.txt.
 #include "avoidfreeze.h"
+#include "input_helpers.h"
+#include "simulation_step.h"
 
-#include <engine/engine.h>
+#include <base/time.h>
 #include <engine/shared/config.h>
-
 #include <game/client/gameclient.h>
 #include <game/client/prediction/entities/character.h>
-#include <game/client/prediction/gameworld.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
+#include <exception>
 #include <limits>
-#include <thread>
-#include <vector>
-
-constexpr int gs_MalinkaAvoidForceMs = 120;
-int64_t gs_MalinkaLastAvoidTime = 0;
 
 void CMalinkaAvoidFreeze::OnReset()
 {
-	std::fill(std::begin(m_BlatantTrackPointInit), std::end(m_BlatantTrackPointInit), false);
-	std::fill(std::begin(m_BlatantTrackPoint), std::end(m_BlatantTrackPoint), vec2(0.0f, 0.0f));
-	std::fill(std::begin(m_BlatantHookTarget), std::end(m_BlatantHookTarget), vec2(0.0f, 0.0f));
-	std::fill(std::begin(m_BlatantHookHoldTicks), std::end(m_BlatantHookHoldTicks), 0);
 	std::fill(std::begin(m_BlatantFreezeResetFrozenLast), std::end(m_BlatantFreezeResetFrozenLast), false);
 	std::fill(std::begin(m_BlatantFreezeResetSince), std::end(m_BlatantFreezeResetSince), 0);
 	std::fill(std::begin(m_AvoidLastMousePos), std::end(m_AvoidLastMousePos), vec2(0.0f, 0.0f));
-	std::fill(std::begin(m_AvoidForcing), std::end(m_AvoidForcing), false);
-	std::fill(std::begin(m_AvoidForcedDir), std::end(m_AvoidForcedDir), 0);
-	std::fill(std::begin(m_AvoidForceUntil), std::end(m_AvoidForceUntil), 0);
-	std::fill(std::begin(m_AvoidWasInDanger), std::end(m_AvoidWasInDanger), false);
+	std::fill(std::begin(m_aLastSafeValid), std::end(m_aLastSafeValid), false);
+	std::fill(std::begin(m_aLastSafeClientId), std::end(m_aLastSafeClientId), -1);
+	std::fill(std::begin(m_aLastMode), std::end(m_aLastMode), -1);
 }
 
 bool CMalinkaAvoidFreeze::IsFreezeTile(int Tile) const
@@ -50,420 +38,246 @@ bool CMalinkaAvoidFreeze::HasFreezeTile(vec2 Pos) const
 	return IsFreezeTile(GameClient()->Collision()->GetTileIndex(MapIndex)) || IsFreezeTile(GameClient()->Collision()->GetFrontTileIndex(MapIndex));
 }
 
-bool CMalinkaAvoidFreeze::IsDangerousMapIndex(int MapIndex, bool DetectFreeze, bool DetectDeath, bool DetectTele)
+namespace
 {
-	if(MapIndex < 0)
+struct SAvoidTiles
+{
+	bool m_Death;
+	bool m_Teles;
+	bool m_Unfreeze;
+	int m_UnfreezeTicks;
+};
+
+bool IsAvoidTile(int Tile, bool Unfreeze)
+{
+	return Tile == TILE_FREEZE || Tile == TILE_DFREEZE || Tile == TILE_LFREEZE ||
+		(Unfreeze && (Tile == TILE_UNFREEZE || Tile == TILE_DUNFREEZE || Tile == TILE_LUNFREEZE));
+}
+
+bool AvoidDangerAt(CCollision &Collision, vec2 Pos, const SAvoidTiles &Tiles, int Tick)
+{
+	const int Index = Collision.GetPureMapIndex(Pos);
+	if(Index < 0)
 		return false;
-
-	if(DetectFreeze)
-	{
-		const int Tile = GameClient()->Collision()->GetTileIndex(MapIndex);
-		const int FrontTile = GameClient()->Collision()->GetFrontTileIndex(MapIndex);
-		if(IsFreezeTile(Tile) || IsFreezeTile(FrontTile))
-			return true;
-	}
-
-	if(DetectDeath)
-	{
-		if(GameClient()->Collision()->GetTileIndex(MapIndex) == TILE_DEATH || GameClient()->Collision()->GetFrontTileIndex(MapIndex) == TILE_DEATH)
-			return true;
-	}
-
-	if(DetectTele)
-	{
-		if(GameClient()->Collision()->IsTeleport(MapIndex) || GameClient()->Collision()->IsEvilTeleport(MapIndex) || GameClient()->Collision()->IsCheckTeleport(MapIndex) ||
-			GameClient()->Collision()->IsCheckEvilTeleport(MapIndex) || GameClient()->Collision()->IsTeleportWeapon(MapIndex) || GameClient()->Collision()->IsTeleportHook(MapIndex) ||
-			GameClient()->Collision()->IsTeleCheckpoint(MapIndex))
-			return true;
-	}
-
-	return false;
-}
-
-bool CMalinkaAvoidFreeze::MalinkaTryMove(const CNetObj_PlayerInput &BaseInput, int Direction, int CheckTicks)
-{
-	CNetObj_PlayerInput ModifiedInput = BaseInput;
-	if(BaseInput.m_Direction != Direction)
-	{
-		const int Sensitivity = MalinkaDirectionSensitivityStep();
-		if(Direction > BaseInput.m_Direction)
-			ModifiedInput.m_Direction = std::min(BaseInput.m_Direction + Sensitivity, Direction);
-		else
-			ModifiedInput.m_Direction = std::max(BaseInput.m_Direction - Sensitivity, Direction);
-	}
-
-	if(MalinkaPredictFreeze(ModifiedInput, CheckTicks) == EFreezePrediction::SAFE)
-	{
-		const int Local = g_Config.m_ClDummy;
-		GameClient()->m_MalinkaAvoidFreeze.m_AvoidForcing[Local] = true;
-		GameClient()->m_MalinkaAvoidFreeze.m_AvoidForcedDir[Local] = ModifiedInput.m_Direction;
-		GameClient()->m_MalinkaAvoidFreeze.m_AvoidForceUntil[Local] = time_get() + static_cast<int64_t>(gs_MalinkaAvoidForceMs) * time_freq() / 1000;
+	const bool Unfreeze = Tiles.m_Unfreeze && Tick <= Tiles.m_UnfreezeTicks;
+	if(IsAvoidTile(Collision.GetTileIndex(Index), Unfreeze) || IsAvoidTile(Collision.GetFrontTileIndex(Index), Unfreeze))
 		return true;
-	}
-	return false;
-}
-
-bool CMalinkaAvoidFreeze::MalinkaTryAvoidFreeze(int LocalPlayerId)
-{
-	const int CheckTicks = MalinkaAvoidPredictTicks();
-	const int MaxAttempts = MalinkaMaxAvoidAttempts();
-	const int MaxAttemptsPerDirection = MalinkaMaxAvoidAttemptsPerDirection();
-	const CNetObj_PlayerInput BaseInput = GameClient()->m_Controls.m_aInputData[LocalPlayerId];
-	const int ClientId = GameClient()->m_aLocalIds[LocalPlayerId];
-
-	const CCharacter *pChar = GameClient()->m_PredictedWorld.GetCharacterById(ClientId);
-	vec2 DangerDir(0.0f, 0.0f);
-	if(pChar && pChar->Core())
+	// Only player teleport entrances are hazards here: a hook/weapon teleport
+	// or a teleport checkpoint alone does not teleport the character.
+	if(Tiles.m_Teles && (Collision.IsTeleport(Index) || Collision.IsEvilTeleport(Index) ||
+		Collision.IsCheckTeleport(Index) || Collision.IsCheckEvilTeleport(Index)))
+		return true;
+	if(Tiles.m_Death)
 	{
-		int DangerTick = -1;
-		float DangerDistance = 0.0f;
-		const auto Prediction = MalinkaPredictFreeze(BaseInput, CheckTicks, &DangerTick, &DangerDistance);
-		if(Prediction == EFreezePrediction::UNAVAILABLE)
-			return false;
-		if(Prediction == EFreezePrediction::DANGER)
-		{
-			static CGameWorld s_World;
-			if(!s_World.CopyWorldIndependent(&GameClient()->m_PredictedWorld))
-				return false;
-			s_World.m_WorldConfig.m_PredictEvents = false;
-			CCharacter *pTestChar = s_World.GetCharacterById(ClientId);
-			if(pTestChar)
+		const float Offset = CCharacterCore::PhysicalSize() / 3.0f;
+		for(float X : {-Offset, Offset})
+			for(float Y : {-Offset, Offset})
 			{
-				for(int i = 0; i < std::clamp(DangerTick, 0, CheckTicks); i++)
-				{
-					if(!Malinka::TickSimulation(s_World, {{ClientId, BaseInput}}))
-						return false;
-					pTestChar = s_World.GetCharacterById(ClientId);
-					if(!pTestChar)
-						return false;
-				}
-				const vec2 DangerPos = pTestChar->m_Pos;
-				const vec2 CurrentPos = pChar->Core()->m_Pos;
-				const vec2 DirVec = DangerPos - CurrentPos;
-				const float DirLen = length(DirVec);
-				if(DirLen > 0.1f)
-					DangerDir = DirVec / DirLen;
-			}
-		}
-	}
-
-	std::array<int, 3> aDirections = {-1, 1, 0};
-	if(std::fabs(DangerDir.x) > 0.1f)
-	{
-		const int AwayDir = DangerDir.x > 0.0f ? -1 : 1;
-		const int TowardDir = DangerDir.x > 0.0f ? 1 : -1;
-		aDirections = {AwayDir, TowardDir, 0};
-	}
-
-	std::array<int, 3> aDirectionAttempts = {0, 0, 0};
-	int Attempts = 0;
-	while(Attempts < MaxAttempts)
-	{
-		bool TriedAny = false;
-		for(size_t i = 0; i < aDirections.size() && Attempts < MaxAttempts; i++)
-		{
-			if(aDirectionAttempts[i] >= MaxAttemptsPerDirection)
-				continue;
-
-			const int Direction = aDirections[i];
-			if(Direction == BaseInput.m_Direction && aDirectionAttempts[i] == 0)
-			{
-				aDirectionAttempts[i]++;
-				continue;
-			}
-
-			CNetObj_PlayerInput AttemptInput = BaseInput;
-			if(aDirectionAttempts[i] > 0 && AttemptInput.m_Hook != 0)
-				AttemptInput.m_Hook = 0;
-
-			const int AttemptCheckTicks = std::max(1, CheckTicks - aDirectionAttempts[i]);
-			aDirectionAttempts[i]++;
-			Attempts++;
-			TriedAny = true;
-
-			if(MalinkaTryMove(AttemptInput, Direction, AttemptCheckTicks))
-			{
-				CNetObj_PlayerInput VerifyInput = AttemptInput;
-				if(VerifyInput.m_Direction != Direction)
-				{
-					const int Sensitivity = MalinkaDirectionSensitivityStep();
-					if(Direction > VerifyInput.m_Direction)
-						VerifyInput.m_Direction = std::min(VerifyInput.m_Direction + Sensitivity, Direction);
-					else
-						VerifyInput.m_Direction = std::max(VerifyInput.m_Direction - Sensitivity, Direction);
-				}
-
-				if(MalinkaPredictFreeze(VerifyInput, std::min(AttemptCheckTicks + 2, 15)) == EFreezePrediction::SAFE)
+				const int Corner = Collision.GetPureMapIndex(Pos + vec2(X, Y));
+				if(Corner >= 0 && (Collision.GetTileIndex(Corner) == TILE_DEATH || Collision.GetFrontTileIndex(Corner) == TILE_DEATH))
 					return true;
-
-				GameClient()->m_MalinkaAvoidFreeze.m_AvoidForcing[LocalPlayerId] = false;
 			}
-		}
-
-		if(!TriedAny)
-			break;
 	}
-
 	return false;
 }
-
-int CMalinkaAvoidFreeze::MalinkaAvoidPredictTicks() const
-{
-	return std::clamp(g_Config.m_MalinkaAvoidLegitCheckTicks, 1, 100);
 }
 
-int CMalinkaAvoidFreeze::MalinkaHookAssistTicks() const
+void CMalinkaAvoidFreeze::ApplyAvoid(CNetObj_PlayerInput &Input, int64_t LastActivity) try
 {
-	return std::clamp(g_Config.m_MalinkaAvoidLegitUnfreeze ? g_Config.m_MalinkaAvoidLegitUnfreezeTicks : g_Config.m_MalinkaAvoidLegitCheckTicks, 1, 100);
-}
+	const int Slot = g_Config.m_ClDummy;
+	if(Slot < 0 || Slot >= NUM_DUMMIES || !g_Config.m_MalinkaAvoidfreeze)
+		return;
+	const int Mode = g_Config.m_MalinkaAvoidMode;
+	if(Mode != 1 && Mode != 2)
+		return;
+	if(!GameClient()->Predict() || GameClient()->m_Menus.IsActive() || GameClient()->m_Chat.IsActive() ||
+		GameClient()->m_GameConsole.IsActive() || GameClient()->m_Snap.m_SpecInfo.m_Active)
+		return;
+	const bool Legit = Mode == 1;
+	const bool AfkProtection = Legit ? g_Config.m_MalinkaAvoidLegitAfkProtection : g_Config.m_MalinkaAvoidBlatantAfkProtection;
+	const int AfkTime = Legit ? g_Config.m_MalinkaAvoidLegitAfkTime : g_Config.m_MalinkaAvoidBlatantAfkTime;
+	if(AfkProtection && Malinka::AvoidAfkExpired(time_get(), LastActivity, time_freq(), AfkTime))
+	{
+		g_Config.m_MalinkaAvoidfreeze = 0;
+		m_aLastSafeValid[Slot] = false;
+		return;
+	}
+	const int ClientId = GameClient()->m_aLocalIds[Slot];
+	if(ClientId < 0 || ClientId >= MAX_CLIENTS)
+		return;
+	if(m_aLastSafeClientId[Slot] != ClientId || m_aLastMode[Slot] != Mode)
+		m_aLastSafeValid[Slot] = false;
+	m_aLastSafeClientId[Slot] = ClientId;
+	m_aLastMode[Slot] = Mode;
+	const auto *pLiveCharacter = GameClient()->m_PredictedWorld.GetCharacterById(ClientId);
+	if(!pLiveCharacter || pLiveCharacter->m_FreezeTime > 0 || pLiveCharacter->Core()->m_DeepFrozen || pLiveCharacter->Core()->m_LiveFrozen)
+		return;
 
-int CMalinkaAvoidFreeze::MalinkaDirectionSensitivityStep() const
-{
-	return g_Config.m_MalinkaAvoidLegitDirectionPriority >= 667 ? 2 : 1;
-}
+	const int CheckTicks = std::clamp(Legit ? g_Config.m_MalinkaAvoidLegitCheckTicks : g_Config.m_MalinkaAvoidBlatantCheckTicks, 1, Malinka::AVOID_MAX_TICKS);
+	const bool AllowDirection = Legit ? g_Config.m_MalinkaAvoidLegitDirection : g_Config.m_MalinkaAvoidBlatantDirection && g_Config.m_MalinkaAvoidBlatantCanSetDir;
+	const bool AllowHook = (Legit ? g_Config.m_MalinkaAvoidLegitHook : g_Config.m_MalinkaAvoidBlatantHook) &&
+		(Legit || !g_Config.m_MalinkaAvoidBlatantOnlyHorizontally);
+	const SAvoidTiles Tiles{
+		(Legit ? g_Config.m_MalinkaAvoidLegitDeath : g_Config.m_MalinkaAvoidBlatantDeath) != 0,
+		(Legit ? g_Config.m_MalinkaAvoidLegitTeles : g_Config.m_MalinkaAvoidBlatantTeles) != 0,
+		(Legit ? g_Config.m_MalinkaAvoidLegitUnfreeze : g_Config.m_MalinkaAvoidBlatantUnfreeze) != 0,
+		std::clamp(Legit ? g_Config.m_MalinkaAvoidLegitUnfreezeTicks : g_Config.m_MalinkaAvoidBlatantUnfreezeTicks, 1, 30)};
+	const CNetObj_PlayerInput BaseInput = Input;
+	const auto Actions = Malinka::AvoidActions(Input.m_Direction, Input.m_Hook, AllowDirection, AllowHook);
+	CGameWorld Captured;
+	if(!Captured.CopyWorldIndependent(&GameClient()->m_PredictedWorld))
+		return;
+	Captured.m_WorldConfig.m_PredictEvents = false;
 
-float CMalinkaAvoidFreeze::MalinkaDirectionSensitivityFactor() const
-{
-	return std::clamp(g_Config.m_MalinkaAvoidLegitDirectionPriority / 1000.0f, 0.10f, 1.0f);
-}
-
-int CMalinkaAvoidFreeze::MalinkaMaxAvoidAttempts() const
-{
-	return std::clamp(g_Config.m_MalinkaAvoidLegitQuality, 1, 100);
-}
-
-int CMalinkaAvoidFreeze::MalinkaMaxAvoidAttemptsPerDirection() const
-{
-	return std::clamp(std::max(1, g_Config.m_MalinkaAvoidLegitRandomness), 1, 100);
-}
-
-bool CMalinkaAvoidFreeze::MalinkaGetFreeze(vec2 Pos, int FreezeTime) const
-{
-	if(FreezeTime > 0)
-		return true;
-
-	const float CheckOffset = CCharacterCore::PhysicalSize() / 3.0f;
-	const vec2 aCheckPositions[] = {
-		Pos,
-		{Pos.x + CheckOffset, Pos.y - CheckOffset},
-		{Pos.x + CheckOffset, Pos.y + CheckOffset},
-		{Pos.x - CheckOffset, Pos.y - CheckOffset},
-		{Pos.x - CheckOffset, Pos.y + CheckOffset},
+	auto Evaluate = [&](const CNetObj_PlayerInput &Candidate, const Malinka::CAvoidSequence *pSequence, int Ticks) -> Malinka::SAvoidPrediction {
+		CGameWorld World;
+		if(!World.CopyWorldIndependent(&Captured))
+			return {};
+		for(int Step = 0; Step < Ticks; ++Step)
+		{
+			CNetObj_PlayerInput TickInput = Candidate;
+			if(pSequence)
+			{
+				const auto &Action = Actions.m_aActions[(*pSequence)[Step]];
+				TickInput.m_Direction = Action.m_Direction;
+				TickInput.m_Hook = Action.m_Hook;
+			}
+			auto *pCharacter = World.GetCharacterById(ClientId);
+			if(!pCharacter)
+				return {}; // No valid starting character is not a safe path.
+			const vec2 Before = pCharacter->GetPos();
+			if(!std::isfinite(Before.x) || !std::isfinite(Before.y))
+				return {};
+			if(AvoidDangerAt(*World.Collision(), Before, Tiles, Step + 1))
+				return {Malinka::EAvoidPrediction::DANGER, Step + 1};
+			if(!Malinka::TickSimulation(World, {{ClientId, TickInput}}))
+				return {};
+			pCharacter = World.GetCharacterById(ClientId);
+			if(!pCharacter)
+				return {Malinka::EAvoidPrediction::DANGER, Step + 1};
+			const vec2 After = pCharacter->GetPos();
+			if(!std::isfinite(After.x) || !std::isfinite(After.y))
+				return {};
+			if(pCharacter->m_FreezeTime > 0 || pCharacter->Core()->m_DeepFrozen || pCharacter->Core()->m_LiveFrozen ||
+				AvoidDangerAt(*World.Collision(), After, Tiles, Step + 1) ||
+				(Tiles.m_Unfreeze && Step < Tiles.m_UnfreezeTicks &&
+					(IsAvoidTile(pCharacter->m_TileIndex, true) || IsAvoidTile(pCharacter->m_TileFIndex, true))))
+				return {Malinka::EAvoidPrediction::DANGER, Step + 1};
+		}
+		return {Malinka::EAvoidPrediction::SAFE, 0};
 	};
 
-	for(const vec2 &CheckPos : aCheckPositions)
+	const auto Baseline = Evaluate(BaseInput, nullptr, CheckTicks);
+	if(Baseline.m_State == Malinka::EAvoidPrediction::UNAVAILABLE)
+		return;
+	if(Baseline.m_State == Malinka::EAvoidPrediction::SAFE)
 	{
-		const int MapIndex = Collision()->GetPureMapIndex(CheckPos.x, CheckPos.y);
-		if(MapIndex < 0)
-			continue;
-
-		if(IsFreezeTile(Collision()->GetTileIndex(MapIndex)) || IsFreezeTile(Collision()->GetFrontTileIndex(MapIndex)))
-			return true;
-		if(g_Config.m_MalinkaAvoidLegitDeath &&
-			(Collision()->GetTileIndex(MapIndex) == TILE_DEATH || Collision()->GetFrontTileIndex(MapIndex) == TILE_DEATH))
-			return true;
-		if(g_Config.m_MalinkaAvoidLegitTeles &&
-			(Collision()->IsTeleport(MapIndex) || Collision()->IsCheckEvilTeleport(MapIndex) || Collision()->IsCheckTeleport(MapIndex) ||
-				Collision()->IsEvilTeleport(MapIndex) || Collision()->IsTeleportWeapon(MapIndex) || Collision()->IsTeleportHook(MapIndex) ||
-				Collision()->IsTeleCheckpoint(MapIndex)))
-			return true;
-	}
-
-	return false;
-}
-
-bool CMalinkaAvoidFreeze::MalinkaAutomationAllowed() const
-{
-	if(!GameClient() || !GameClient()->Predict())
-		return false;
-	if(GameClient()->m_Snap.m_SpecInfo.m_Active || GameClient()->m_Chat.IsActive() || GameClient()->m_Menus.IsActive())
-		return false;
-	return true;
-}
-
-void CMalinkaAvoidFreeze::MalinkaAvoidFreeze()
-{
-	if(!g_Config.m_MalinkaAvoidfreeze || g_Config.m_MalinkaAvoidMode != 1 || !g_Config.m_MalinkaAvoidLegitDirection)
-		return;
-	if(!MalinkaAutomationAllowed())
-		return;
-
-	const int64_t CurrentTime = time_get();
-	if(!MalinkaIsAvoidCooldownElapsed(CurrentTime))
-		return;
-
-	const int LocalPlayerId = g_Config.m_ClDummy;
-	if(GameClient()->m_MalinkaAvoidFreeze.m_AvoidForcing[LocalPlayerId] && CurrentTime <= GameClient()->m_MalinkaAvoidFreeze.m_AvoidForceUntil[LocalPlayerId])
-		return;
-	if(!GameClient()->m_Controls.IsPlayerActive(LocalPlayerId))
-		return;
-
-	int DangerTick = -1;
-	float DangerDistance = 0.0f;
-	const auto InDanger = MalinkaPredictFreeze(GameClient()->m_Controls.m_aInputData[LocalPlayerId], MalinkaAvoidPredictTicks(), &DangerTick, &DangerDistance);
-	if(InDanger != EFreezePrediction::DANGER)
-	{
-		GameClient()->m_MalinkaAvoidFreeze.m_AvoidWasInDanger[LocalPlayerId] = false;
+		m_aLastSafeInput[Slot] = BaseInput;
+		m_aLastSafeValid[Slot] = true;
 		return;
 	}
+	if(!Legit && !Malinka::AvoidShouldIntervene(Baseline, g_Config.m_MalinkaAvoidBlatantKickInTicks))
+		return;
 
-	const int Level = std::clamp(MalinkaAvoidPredictTicks(), 1, 5);
-	const float SensitivityFactor = MalinkaDirectionSensitivityFactor();
-	const float BaseTickLimit = Level <= 2 ? (MalinkaAvoidPredictTicks() / 4.0f) :
-						 (Level <= 4 ? (MalinkaAvoidPredictTicks() / 3.0f) : (MalinkaAvoidPredictTicks() / 2.0f));
-	const float SensitivityAdjustment = 0.5f + (0.5f * SensitivityFactor);
-	const int CloseTickLimit = std::max(1, (int)(BaseTickLimit * SensitivityAdjustment));
-
-	float BaseDistanceThreshold = 48.0f;
-	if(Level == 2)
-		BaseDistanceThreshold = 64.0f;
-	else if(Level == 3)
-		BaseDistanceThreshold = 80.0f;
-	else if(Level == 4)
-		BaseDistanceThreshold = 96.0f;
-	else if(Level >= 5)
-		BaseDistanceThreshold = 112.0f;
-
-	const float DistanceThreshold = BaseDistanceThreshold * (0.6f + (0.8f * SensitivityFactor));
-	if(DangerTick > CloseTickLimit && DangerDistance > DistanceThreshold)
+	if(Legit)
 	{
-		GameClient()->m_MalinkaAvoidFreeze.m_AvoidWasInDanger[LocalPlayerId] = false;
-		return;
-	}
-
-	if(GameClient()->m_MalinkaAvoidFreeze.m_AvoidWasInDanger[LocalPlayerId])
-		return;
-
-	if(MalinkaTryAvoidFreeze(LocalPlayerId))
-	{
-		m_AvoidWasInDanger[LocalPlayerId] = true;
-		MalinkaUpdateAvoidCooldown(CurrentTime);
-	}
-}
-
-void CMalinkaAvoidFreeze::MalinkaHookAssist()
-{
-	if(!g_Config.m_MalinkaAvoidfreeze || g_Config.m_MalinkaAvoidMode != 1 || !g_Config.m_MalinkaAvoidLegitHook)
-		return;
-	if(!MalinkaAutomationAllowed())
-		return;
-
-	static int s_aLastHookTick[NUM_DUMMIES] = {-1, -1};
-	const int Local = g_Config.m_ClDummy;
-	const int CurrentPredTick = GameClient()->m_PredictedWorld.GameTick();
-	if(CurrentPredTick == s_aLastHookTick[Local])
-		return;
-	s_aLastHookTick[Local] = CurrentPredTick;
-
-	const int ClientId = GameClient()->m_aLocalIds[Local];
-	const CCharacter *pChar = ClientId >= 0 ? GameClient()->m_PredictedWorld.GetCharacterById(ClientId) : nullptr;
-	const CCharacterCore *pCore = pChar ? pChar->Core() : nullptr;
-	if(!pChar || !pCore)
-		return;
-
-	const bool AimingUp = GameClient()->m_Controls.m_aInputData[Local].m_TargetY < 0;
-	const int BaseCheckTicks = MalinkaHookAssistTicks();
-	const int CheckTicks = std::max(1, BaseCheckTicks + ((BaseCheckTicks >= 1 && BaseCheckTicks <= 3 && AimingUp) ? 1 : 0));
-	const float SensitivityFactor = std::clamp(BaseCheckTicks / 10.0f, 0.2f, 1.0f);
-	const bool CurrentlyHoldingHook = GameClient()->m_Controls.m_aInputData[Local].m_Hook != 0;
-	const float Speed = length(pCore->m_Vel);
-
-	if(CurrentlyHoldingHook)
-	{
-		CNetObj_PlayerInput TestInput = GameClient()->m_Controls.m_aInputData[Local];
-		TestInput.m_Hook = 1;
-
-		int DangerTick = -1;
-		float DangerDistance = 0.0f;
-		if(MalinkaPredictFreeze(TestInput, CheckTicks, &DangerTick, &DangerDistance) == EFreezePrediction::DANGER)
+		const uint32_t Seed = static_cast<uint32_t>(Captured.GameTick()) * 0x9e3779b9u + static_cast<uint32_t>(ClientId);
+		const auto Result = Malinka::SearchLegitAvoid(Actions, CheckTicks, g_Config.m_MalinkaAvoidLegitQuality,
+			g_Config.m_MalinkaAvoidLegitRandomness, g_Config.m_MalinkaAvoidLegitDirectionPriority,
+			g_Config.m_MalinkaAvoidLegitHookPriority, g_Config.m_MalinkaAvoidLegitLifePriority, Seed, Baseline,
+			[&](const Malinka::CAvoidSequence &Sequence, int Ticks) { return Evaluate(BaseInput, &Sequence, Ticks); });
+		if(Result.m_Available && Result.m_Found)
 		{
-			CNetObj_PlayerInput ReleaseInput = GameClient()->m_Controls.m_aInputData[Local];
-			ReleaseInput.m_Hook = 0;
-			const bool CanAvoidByReleasing = MalinkaPredictFreeze(ReleaseInput, CheckTicks) == EFreezePrediction::SAFE;
-			if(!CanAvoidByReleasing && DangerTick > CheckTicks / 2)
-				return;
-
-			const float SpeedFactor = std::min(1.0f, Speed / 10.0f);
-			const float UrgencyMultiplier = 0.3f + (0.7f * SensitivityFactor) - (0.2f * SpeedFactor);
-			const float DistanceMultiplier = 0.5f + (1.5f * SensitivityFactor) + (0.5f * SpeedFactor);
-			const int HookUrgencyTicks = std::max(1, (int)(CheckTicks * UrgencyMultiplier));
-			const float HookDistanceThreshold = 32.0f * (1.5f + BaseCheckTicks * DistanceMultiplier);
-			if((DangerTick <= HookUrgencyTicks || DangerDistance <= HookDistanceThreshold) && CanAvoidByReleasing)
-				GameClient()->m_Controls.m_aInputData[Local].m_Hook = 0;
+			Input.m_Direction = Actions.m_aActions[Result.m_FirstAction].m_Direction;
+			Input.m_Hook = Actions.m_aActions[Result.m_FirstAction].m_Hook;
 		}
+		return;
 	}
-	else
-	{
-		CNetObj_PlayerInput TestInput = GameClient()->m_Controls.m_aInputData[Local];
-		TestInput.m_Hook = 1;
 
-		int DangerTick = -1;
-		float DangerDistance = 0.0f;
-		if(MalinkaPredictFreeze(TestInput, CheckTicks, &DangerTick, &DangerDistance) == EFreezePrediction::DANGER)
+	// Blatant: evaluate constant candidates for the complete Check Ticks horizon.
+	// Unlike the donor, Hook/Direction/FOV are constraints, not scoring bonuses.
+	const bool ScanAim = AllowHook && g_Config.m_MalinkaAvoidBlatantAimbot;
+	const int Segments = ScanAim ? std::clamp(g_Config.m_MalinkaAvoidBlatantAimbotSegments, 1, 180) : 0;
+	const vec2 BaseAim = normalize(Malinka::FiniteAim(vec2(BaseInput.m_TargetX, BaseInput.m_TargetY)));
+	const float BaseAngle = std::atan2(BaseAim.y, BaseAim.x);
+	CNetObj_PlayerInput BestInput = BaseInput;
+	bool FoundSafe = false;
+	float BestAngle = std::numeric_limits<float>::infinity();
+	int BestChanges = std::numeric_limits<int>::max();
+	auto Consider = [&](const CNetObj_PlayerInput &Candidate, float AimOffset) {
+		const auto Prediction = Evaluate(Candidate, nullptr, CheckTicks);
+		if(Prediction.m_State == Malinka::EAvoidPrediction::UNAVAILABLE)
+			return false;
+		if(Prediction.m_State != Malinka::EAvoidPrediction::SAFE)
+			return true;
+		const int Changes = (Candidate.m_Direction != BaseInput.m_Direction) + (Candidate.m_Hook != BaseInput.m_Hook);
+		if(!FoundSafe || (g_Config.m_MalinkaAvoidBlatantAimbotMode == 1 ?
+			(AimOffset < BestAngle || (AimOffset == BestAngle && Changes < BestChanges)) :
+			(Changes < BestChanges || (Changes == BestChanges && AimOffset < BestAngle))))
 		{
-			CNetObj_PlayerInput NoHookInput = GameClient()->m_Controls.m_aInputData[Local];
-			NoHookInput.m_Hook = 0;
-			const bool CanMoveWithoutHook = MalinkaPredictFreeze(NoHookInput, CheckTicks) == EFreezePrediction::SAFE;
-			const float UrgencyMultiplier = 0.2f + (0.6f * SensitivityFactor);
-			const int HookUrgencyTicks = std::max(1, (int)(CheckTicks * UrgencyMultiplier));
-			if(DangerTick <= HookUrgencyTicks && DangerDistance < 48.0f && CanMoveWithoutHook)
-				GameClient()->m_Controls.m_aInputData[Local].m_Hook = 0;
+			BestInput = Candidate;
+			BestChanges = Changes;
+			BestAngle = AimOffset;
+			FoundSafe = true;
 		}
-	}
-}
-
-bool CMalinkaAvoidFreeze::MalinkaIsAvoidCooldownElapsed(int64_t CurrentTime) const
-{
-	const int64_t ConfiguredDelay = static_cast<int64_t>(std::max(0, g_Config.m_MalinkaAvoidLegitAfkProtection ? g_Config.m_MalinkaAvoidLegitAfkTime * 100 : 0)) * time_freq() / 1000;
-	if(gs_MalinkaLastAvoidTime == 0)
 		return true;
-	return CurrentTime - gs_MalinkaLastAvoidTime >= ConfiguredDelay;
-}
-
-void CMalinkaAvoidFreeze::MalinkaUpdateAvoidCooldown(int64_t CurrentTime)
-{
-	gs_MalinkaLastAvoidTime = CurrentTime + static_cast<int64_t>(gs_MalinkaAvoidForceMs) * time_freq() / 1000;
-}
-
-CMalinkaAvoidFreeze::EFreezePrediction CMalinkaAvoidFreeze::MalinkaPredictFreeze(const CNetObj_PlayerInput &Input, int Ticks, int *pDangerTick, float *pDangerDistance) const
-{
-	if(pDangerTick)
-		*pDangerTick = -1;
-	if(pDangerDistance)
-		*pDangerDistance = 0.0f;
-	if(!GameClient()->Predict())
-		return EFreezePrediction::UNAVAILABLE;
-	static CGameWorld s_World;
-	if(!s_World.CopyWorldIndependent(&GameClient()->m_PredictedWorld))
-		return EFreezePrediction::UNAVAILABLE;
-	s_World.m_WorldConfig.m_PredictEvents = false;
-	const int ClientId = GameClient()->m_aLocalIds[g_Config.m_ClDummy];
-	CCharacter *pChar = s_World.GetCharacterById(ClientId);
-	if(!pChar)
-		return EFreezePrediction::UNAVAILABLE;
-	const vec2 StartPos = pChar->GetPos();
-	for(int Step = 0; Step < std::clamp(Ticks, 1, 100); ++Step)
+	};
+	for(int ActionIndex = 0; ActionIndex < Actions.m_Count; ++ActionIndex)
 	{
-		if(!Malinka::TickSimulation(s_World, {{ClientId, Input}}))
-			return EFreezePrediction::UNAVAILABLE;
-		pChar = s_World.GetCharacterById(ClientId);
-		if(!pChar)
-			return EFreezePrediction::UNAVAILABLE;
-		if(MalinkaGetFreeze(pChar->m_Pos, pChar->m_FreezeTime))
+		CNetObj_PlayerInput Candidate = BaseInput;
+		Candidate.m_Direction = Actions.m_aActions[ActionIndex].m_Direction;
+		Candidate.m_Hook = Actions.m_aActions[ActionIndex].m_Hook;
+		if(!Consider(Candidate, 0.0f))
+			return;
+		// Aim is relevant only to a hooking candidate. Preserve exact user aim
+		// on releases; changing it there could fire a weapon in another direction.
+		if(!Candidate.m_Hook)
+			continue;
+		for(int Segment = 0; Segment < Segments; ++Segment)
 		{
-			if(pDangerTick)
-				*pDangerTick = Step + 1;
-			if(pDangerDistance)
-				*pDangerDistance = distance(StartPos, pChar->m_Pos);
-			return EFreezePrediction::DANGER;
+			const float Offset = Malinka::AvoidAimOffset(Segment, Segments, g_Config.m_MalinkaAvoidBlatantAimbotFov);
+			const float Angle = BaseAngle + Offset * pi / 180.0f;
+			Candidate.m_TargetX = static_cast<int>(std::cos(Angle) * 1000.0f);
+			Candidate.m_TargetY = static_cast<int>(std::sin(Angle) * 1000.0f);
+			if(!Consider(Candidate, std::abs(Offset)))
+				return;
 		}
 	}
-	return EFreezePrediction::SAFE;
+	if(FoundSafe)
+	{
+		Input = BestInput;
+		m_aLastSafeInput[Slot] = BestInput;
+		m_aLastSafeValid[Slot] = true;
+	}
+	else if(g_Config.m_MalinkaAvoidBlatantNsif && m_aLastSafeValid[Slot])
+	{
+		// Revalidate the cached first input against the *current* world, identity
+		// and assistance limits. Never blindly replay a stale hook/aim/direction.
+		CNetObj_PlayerInput Cached = BaseInput;
+		if(AllowDirection)
+			Cached.m_Direction = m_aLastSafeInput[Slot].m_Direction;
+		if(AllowHook)
+		{
+			Cached.m_Hook = m_aLastSafeInput[Slot].m_Hook;
+			if(ScanAim)
+			{
+				const vec2 Aim = normalize(Malinka::FiniteAim(vec2(m_aLastSafeInput[Slot].m_TargetX, m_aLastSafeInput[Slot].m_TargetY)));
+				if(dot(BaseAim, Aim) >= std::cos(g_Config.m_MalinkaAvoidBlatantAimbotFov * pi / 360.0f))
+				{
+					Cached.m_TargetX = m_aLastSafeInput[Slot].m_TargetX;
+					Cached.m_TargetY = m_aLastSafeInput[Slot].m_TargetY;
+				}
+			}
+		}
+		const auto Prediction = Evaluate(Cached, nullptr, CheckTicks);
+		if(Prediction.m_State == Malinka::EAvoidPrediction::SAFE ||
+			(Prediction.m_State == Malinka::EAvoidPrediction::DANGER && Prediction.m_DangerTick > Baseline.m_DangerTick))
+			Input = Cached;
+	}
 }
-
-bool CMalinkaAvoidFreeze::HasDangerousTile(vec2 Pos, bool DetectFreeze, bool DetectDeath, bool DetectTele)
+catch(const std::exception &)
 {
-	return IsDangerousMapIndex(GameClient()->Collision()->GetPureMapIndex(Pos), DetectFreeze, DetectDeath, DetectTele);
+	// No network input is modified until an entire selection succeeds.
 }
 
 bool CMalinkaAvoidFreeze::HasFreezeAbove(vec2 Pos, int Tiles)
@@ -560,90 +374,6 @@ bool CMalinkaAvoidFreeze::HasImmediateSideFreeze(const CCharacter *pCharacter, i
 	return false;
 }
 
-bool CMalinkaAvoidFreeze::IsSolidTileAt(int TileX, int TileY)
-{
-	if(TileX < 0 || TileY < 0 || TileX >= GameClient()->Collision()->GetWidth() || TileY >= GameClient()->Collision()->GetHeight())
-		return false;
-	const int Index = TileY * GameClient()->Collision()->GetWidth() + TileX;
-	const int Tile = GameClient()->Collision()->GetTileIndex(Index);
-	const int FrontTile = GameClient()->Collision()->GetFrontTileIndex(Index);
-	return Tile == TILE_SOLID || FrontTile == TILE_SOLID;
-}
-
-bool CMalinkaAvoidFreeze::FindBlatantHookTarget(vec2 Pos, vec2 Vel, vec2 GoalPos, float HookLength, bool DangerAhead, vec2 &OutTarget)
-{
-	const int TileRadius = std::max(2, (int)std::ceil(HookLength / 32.0f) + 1);
-	const int CenterTileX = std::clamp((int)std::floor(Pos.x / 32.0f), 0, GameClient()->Collision()->GetWidth() - 1);
-	const int CenterTileY = std::clamp((int)std::floor(Pos.y / 32.0f), 0, GameClient()->Collision()->GetHeight() - 1);
-	const vec2 ToGoal = length(GoalPos - Pos) > 0.001f ? normalize(GoalPos - Pos) : vec2(1.0f, 0.0f);
-	const float GoalSign = GoalPos.x >= Pos.x ? 1.0f : -1.0f;
-	const float Speed = length(Vel);
-
-	float BestScore = -std::numeric_limits<float>::infinity();
-	vec2 BestTarget(0.0f, 0.0f);
-
-	for(int TileY = CenterTileY - TileRadius; TileY <= CenterTileY + TileRadius; ++TileY)
-	{
-		for(int TileX = CenterTileX - TileRadius; TileX <= CenterTileX + TileRadius; ++TileX)
-		{
-			if(!IsSolidTileAt(TileX, TileY))
-				continue;
-
-			const vec2 TilePos(TileX * 32.0f + 32.0f * 0.5f, TileY * 32.0f + 32.0f * 0.5f);
-			const vec2 Delta = TilePos - Pos;
-			const float Dist = length(Delta);
-			if(Dist < 20.0f || Dist > HookLength)
-				continue;
-
-			vec2 CollisionPos;
-			vec2 BeforeCollision;
-			if(GameClient()->Collision()->IntersectLine(Pos, TilePos, &CollisionPos, &BeforeCollision) == TILE_NOHOOK)
-				continue;
-			if(distance(CollisionPos, TilePos) > 24.0f && distance(BeforeCollision, TilePos) > 24.0f)
-				continue;
-
-			const vec2 Dir = normalize(Delta);
-			const float PullUp = std::max(0.0f, -Dir.y);
-			const float PullDown = std::max(0.0f, Dir.y);
-			const float HorizontalTowardGoal = Dir.x * GoalSign;
-			const float GoalAlignment = dot(Dir, ToGoal);
-			float Score =
-				GoalAlignment * 5.5f +
-				HorizontalTowardGoal * 7.0f +
-				PullUp * 7.5f -
-				PullDown * 8.5f -
-				(Dist / HookLength) * 1.75f;
-			if(TilePos.y < Pos.y - 12.0f)
-				Score += 2.5f;
-			if(TilePos.y > Pos.y + 12.0f)
-				Score -= 3.0f;
-			if(std::abs(Dir.x) < 0.10f)
-				Score -= 1.5f;
-			if(DangerAhead && PullUp > 0.15f)
-				Score += 4.5f;
-			if(Speed > 2.5f)
-			{
-				const vec2 VelDir = normalize(Vel);
-				Score += dot(VelDir, Dir) * 1.5f;
-				if(dot(VelDir, Dir) < -0.25f)
-					Score -= 4.0f;
-			}
-
-			if(Score > BestScore)
-			{
-				BestScore = Score;
-				BestTarget = TilePos;
-			}
-		}
-	}
-
-	if(BestScore == -std::numeric_limits<float>::infinity())
-		return false;
-
-	OutTarget = BestTarget;
-	return true;
-}
-
 bool CMalinkaAvoidFreeze::HasImpendingFreeze(const CCharacter *pCharacter, int Ticks)
 {
 	if(pCharacter == nullptr)
@@ -661,80 +391,6 @@ bool CMalinkaAvoidFreeze::HasImpendingFreeze(const CCharacter *pCharacter, int T
 			return true;
 	}
 	return false;
-}
-
-bool CMalinkaAvoidFreeze::HasBlatantDangerAhead(const CCharacter *pCharacter, int Direction, int CheckTicks, bool DetectFreeze, bool DetectDeath, bool DetectTele, bool DetectUnfreeze)
-{
-	if(pCharacter == nullptr)
-		return false;
-
-	const vec2 Pos = pCharacter->GetPos();
-	const vec2 Vel = pCharacter->Core()->m_Vel;
-	for(int Tick = 1; Tick <= std::max(1, CheckTicks); ++Tick)
-	{
-		vec2 FuturePos = Pos + Vel * (0.65f * Tick);
-		FuturePos.x += Direction * Tick * 4.0f;
-		const int MapIndex = GameClient()->Collision()->GetPureMapIndex(FuturePos);
-		if(MapIndex < 0)
-			return true;
-		if(IsDangerousMapIndex(MapIndex, DetectFreeze || DetectUnfreeze, DetectDeath, DetectTele))
-			return true;
-	}
-
-	return false;
-}
-
-int CMalinkaAvoidFreeze::GetBlatantDangerTick(const CCharacter *pCharacter, int Direction, int CheckTicks, bool DetectFreeze, bool DetectDeath, bool DetectTele, bool DetectUnfreeze)
-{
-	if(pCharacter == nullptr)
-		return -1;
-
-	const vec2 Pos = pCharacter->GetPos();
-	const vec2 Vel = pCharacter->Core()->m_Vel;
-	for(int Tick = 1; Tick <= std::max(1, CheckTicks); ++Tick)
-	{
-		vec2 FuturePos = Pos + Vel * (0.65f * Tick);
-		FuturePos.x += Direction * Tick * 4.0f;
-		const int MapIndex = GameClient()->Collision()->GetPureMapIndex(FuturePos);
-		if(MapIndex < 0)
-			return Tick;
-		if(IsDangerousMapIndex(MapIndex, DetectFreeze || DetectUnfreeze, DetectDeath, DetectTele))
-			return Tick;
-	}
-
-	return -1;
-}
-
-int CMalinkaAvoidFreeze::SimulateBlatantFreezeTick(const CNetObj_PlayerInput &BaseInput, int Ticks, bool DetectFreeze, bool DetectDeath, bool DetectTele, bool DetectUnfreeze)
-{
-	int LocalId = GameClient()->m_Snap.m_LocalClientId;
-	CGameWorld SimWorld;
-	if(!SimWorld.CopyWorldIndependent(&GameClient()->m_PredictedWorld))
-		return 0;
-	CCharacter *pSimChar = SimWorld.GetCharacterById(LocalId);
-	if(pSimChar == nullptr)
-		return 0;
-
-	SimWorld.m_WorldConfig.m_PredictEvents = false;
-	for(int Tick = 1; Tick <= std::clamp(Ticks, 1, 100); ++Tick)
-	{
-		if(!Malinka::TickSimulation(SimWorld, {{LocalId, BaseInput}}))
-			return 0;
-		pSimChar = SimWorld.GetCharacterById(LocalId);
-		if(pSimChar == nullptr)
-			return Tick;
-
-		const vec2 Pos = pSimChar->GetPos();
-		const int MapIndex = SimWorld.Collision()->GetPureMapIndex(Pos);
-		if(MapIndex < 0)
-			return Tick;
-		if((DetectFreeze || DetectUnfreeze) && (pSimChar->m_FreezeTime > 0 || pSimChar->Core()->m_DeepFrozen || pSimChar->Core()->m_LiveFrozen))
-			return Tick;
-		if(IsDangerousMapIndex(MapIndex, DetectFreeze || DetectUnfreeze, DetectDeath, DetectTele))
-			return Tick;
-	}
-
-	return -1;
 }
 
 bool CMalinkaAvoidFreeze::IsBlatantFrozenAtPos(vec2 Pos)

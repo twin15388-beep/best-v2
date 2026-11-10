@@ -98,7 +98,7 @@ void CMalinkaMisc::OnConsoleInit()
 	Console()->Register("malinka_status", "", CFGFLAG_CLIENT, [](IConsole::IResult *, void *pUser) {
 		auto *pSelf = static_cast<CMalinkaMisc *>(pUser);
 		pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "malinka", "Experimental adaptation, not official KRX or a complete 1.32 port; see docs/MALINKA_STATUS.md.");
-		pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "malinka", "Insert hides tabs until full process restart, not reconnect; functions remain active. Remote badge authorization is unavailable.");
+		pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "malinka", "Insert hides tabs and local command suggestions/help until process restart; binds, history and functions remain. Remote badge authorization is unavailable.");
 		size_t Count;
 		const auto *pControls = Malinka::UnavailableControls(Count);
 		for(size_t Index = 0; Index < Count; ++Index)

@@ -3125,6 +3125,7 @@ if(CLIENT)
     components/malinka/autoaled.h
     components/malinka/autoedge.cpp
     components/malinka/autoedge.h
+    components/malinka/avoid_policy.h
     components/malinka/avoidfreeze.cpp
     components/malinka/avoidfreeze.h
     components/malinka/colors.h
