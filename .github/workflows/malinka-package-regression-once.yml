@@ -1,0 +1,136 @@
+name: One-shot Malinka artifact regression
+
+on:
+  push:
+    branches: ["arena/733fc6a9-best-v2"]
+    paths: [".github/workflows/malinka-package-regression-once.yml"]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    name: Verify ${{ matrix.platform }} artifact (Linux file operations)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux-x86_64, windows-x86_64]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Confirm exact production sources and completed artifact run
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code 2d00f1f40fb150656c8e916a758b544071619dfd -- src CMakeLists.txt Cargo.lock
+          test "$(gh run view 42885117777 --json headSha --jq .headSha)" = 2d00f1f40fb150656c8e916a758b544071619dfd
+          test "$(gh run view 42885117777 --json conclusion --jq .conclusion)" = success
+          gh run download 42885117777 --name malinka-${{ matrix.platform }} --dir build/artifact
+          test "$(head -n1 build/artifact/build-environment.txt)" = 2d00f1f40fb150656c8e916a758b544071619dfd
+      - name: Prepare temporary actual-package harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/check
+          cat > build/check/package.cpp <<'CPP'
+          // Temporary actual CI artifact checks, not client/updater UI execution.
+          #include <tools/malinka_package_zip.h>
+          #include <iostream>
+          #include <stdexcept>
+          using namespace Malinka;namespace fs=std::filesystem;
+          static int Checks=0,Failures=0;
+          #define CHECK(X) do{++Checks;if(!(X)){++Failures;std::cerr<<"FAIL line "<<__LINE__<<": "<<#X<<'\n';}}while(0)
+          static std::string Read(const fs::path &P){std::string D;CHECK(Files::ReadBounded(P,Package::MAX_FILE_SIZE,D));return D;}
+          static void Write(const fs::path &P,const std::string &D){fs::create_directories(P.parent_path());CHECK(Files::WriteExclusive(P,D));}
+          static std::string Fingerprint(const fs::path &Root)
+          {
+           std::vector<std::pair<std::string,std::string>> V;
+           for(const auto &E:fs::recursive_directory_iterator(Root))if(E.is_regular_file())
+           {
+            const auto Name=Files::Utf8(E.path().lexically_relative(Root));if(Name=="update" || Name.starts_with("update/"))continue;
+            std::string Hash;uint64_t Size=0;CHECK(Package::HashFile(E.path(),Hash,Size));V.emplace_back(Name,Hash);
+           }
+           std::sort(V.begin(),V.end());std::string R;for(const auto &P:V)R+=P.first+' '+P.second+'\n';return R;
+          }
+          int main(int argc,char **argv)
+          {
+           if(argc!=5){std::cerr<<"Usage: check-ci-package checked.zip source.tar.gz platform NEW-owned-root\n";return 64;}
+           const fs::path Archive=argv[1],Source=argv[2],Root=fs::absolute(argv[4]);const std::string Platform=argv[3],Executable=Platform=="windows-x86_64"?"DDNet.exe":"DDNet";if(fs::exists(Root) || !Files::NoLinks(Root)){std::cerr<<"Fresh disposable root required\n";return 65;}fs::create_directories(Root);
+           const auto Extract=Root/"extracted",Install=Root/"install";std::string Error,Hash,SourceHash;uint64_t Size=0;
+           CHECK(Package::HashFile(Archive,Hash,Size));CHECK(Size>1024*1024);const auto Sidecar=Read(fs::path(Archive).concat(".sha256"));CHECK(Sidecar.starts_with(Hash+"  "));
+           CHECK(Package::ExtractZip(Archive,Extract,Error));Package::SManifest M,Verified;CHECK(Package::ReadManifest(Extract,M,Error));CHECK(M.m_vFiles.size()>1000);
+           CHECK(M.m_Platform==Platform && M.m_Executable==Executable);CHECK(M.m_Version==MALINKA_VERSION);CHECK(Package::HashFile(Source,SourceHash,Size));CHECK(SourceHash==M.m_SourceSha256);
+           CHECK(Package::Verify(Extract,Platform,Executable,Verified,Error));CHECK(Verified.m_vFiles.size()==M.m_vFiles.size());
+           // Ensure the new vault ZIP profile didn't accidentally become updater default.
+           CHECK(!Package::ExtractZip(Archive,Root/"vault-profile-reject",Error,{32ull*1024*1024,4ull*1024*1024,64ull*1024*1024,4096}));
+           // Source/target rejection must not touch the installed files.
+           const auto Client=Install/Executable;const auto OldClient=Read(Extract/Executable)+"\nold disposable binary sentinel\n";Write(Client,OldClient);
+           Write(Install/"license.txt","old license sentinel");Write(Install/"settings_ddnet.cfg","config sentinel");Write(Install/"settings_custom.cfg","custom config sentinel");Write(Install/"malinka/replays/user.tas","native replay sentinel");Write(Install/"malinka/replays/vault/preserved/source.tas","raw vault sentinel");Write(Install/"data/assets/arrows/user.png","custom arrow sentinel");Write(Install/"untouched.txt","unrelated sentinel");
+           std::string Preserved;for(const auto &F:M.m_vFiles)if(Package::PreservedPath(F.m_Path)){Preserved=F.m_Path;break;}
+           if(!Preserved.empty() && !fs::exists(Install/fs::u8path(Preserved)))Write(Install/fs::u8path(Preserved),"preserved package-path sentinel");
+           const auto PreservedBefore=Preserved.empty()?std::string():Read(Install/fs::u8path(Preserved));
+           const auto Before=Fingerprint(Install);
+           Package::SManifest Wrong;CHECK(!Package::Verify(Extract,Platform+"-invalid",Executable,Wrong,Error));CHECK(!Package::Install(Extract,Install,Client,Platform+"-invalid",Error));CHECK(Fingerprint(Install)==Before);
+           int ProgressCalls=0;CHECK(!Package::Install(Extract,Install,Client,Platform,Error,[&](int){++ProgressCalls;throw std::runtime_error("one-shot injected progress failure after mutation");}));CHECK(ProgressCalls==1);CHECK(Error.find("previous files were restored")!=std::string::npos);CHECK(Fingerprint(Install)==Before);CHECK(Read(Client)==OldClient);
+           // Hash tamper in actual package fails before installation, then repair our
+           // disposable extracted source to the exact original bytes for success case.
+           const auto License=Extract/"license.txt";const auto LicenseData=Read(License);{std::ofstream O(License,std::ios::binary|std::ios::trunc);O<<LicenseData<<"tamper";}
+           CHECK(!Package::Verify(Extract,Platform,Executable,Wrong,Error));CHECK(!Package::Install(Extract,Install,Client,Platform,Error));CHECK(Fingerprint(Install)==Before);
+           {std::ofstream O(License,std::ios::binary|std::ios::trunc);O<<LicenseData;}
+           // Exercise the real install over actual1026+ files, keeping user paths.
+           int Previous=0;ProgressCalls=0;CHECK(Package::Install(Extract,Install,Client,Platform,Error,[&](int Pct){CHECK(Pct>=Previous && Pct>=0 && Pct<=100);Previous=Pct;++ProgressCalls;}));CHECK(Previous==100 && ProgressCalls>0);
+           size_t Installed=0,Skipped=0;
+           for(const auto &F:M.m_vFiles)
+           {
+            if(Package::PreservedPath(F.m_Path)){++Skipped;continue;}
+            std::string H;uint64_t N=0;CHECK(Package::HashFile(Install/fs::u8path(F.m_Path),H,N));CHECK(H==F.m_Sha256 && N==F.m_Size);++Installed;
+           }
+           CHECK(Read(Client)==Read(Extract/Executable));CHECK(Package::HasBuildMarker(Client,M.m_Version));CHECK(Read(Install/"settings_ddnet.cfg")=="config sentinel");CHECK(Read(Install/"settings_custom.cfg")=="custom config sentinel");CHECK(Read(Install/"malinka/replays/user.tas")=="native replay sentinel");CHECK(Read(Install/"malinka/replays/vault/preserved/source.tas")=="raw vault sentinel");CHECK(Read(Install/"data/assets/arrows/user.png")=="custom arrow sentinel");CHECK(Read(Install/"untouched.txt")=="unrelated sentinel");
+           if(!Preserved.empty())CHECK(Read(Install/fs::u8path(Preserved))==PreservedBefore);
+           int OldClients=0,OldLicenses=0,Journals=0;for(const auto &E:fs::recursive_directory_iterator(Install/"update"))if(E.is_regular_file())
+           {
+            if(E.path().filename()==Executable && Read(E.path())==OldClient)++OldClients;
+            if(E.path().filename()=="license.txt" && Read(E.path())=="old license sentinel")++OldLicenses;
+            if(E.path().filename()=="rollback.txt")++Journals;
+           }
+           CHECK(OldClients==1 && OldLicenses==1 && Journals>=2);
+           std::cout<<"ACTUAL_CI_PACKAGE_CHECKS "<<Checks<<" FAILURES "<<Failures<<" PLATFORM "<<Platform<<" FILES "<<M.m_vFiles.size()<<" INSTALLED "<<Installed<<" PRESERVED_PACKAGE_FILES "<<Skipped<<" ARCHIVE_SHA256 "<<Hash<<" SOURCE_SHA256 "<<SourceHash<<"; not client launch/Windows updater UI or published update service\n";
+           return Failures?1:0;
+          }
+          CPP
+          g++ -std=c++20 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -Isrc -Isrc/engine/external/zlib build/check/package.cpp \
+            src/game/client/components/malinka/file_safety.cpp src/base/hash_libtomcrypt.cpp \
+            -lz -o build/check/package-check
+      - name: Run actual ZIP verification, install, rollback and preservation
+        shell: bash
+        run: |
+          set -uo pipefail
+          ASAN_OPTIONS=detect_leaks=1 build/check/package-check \
+            build/artifact/bestclient-malinka-${{ matrix.platform }}.zip \
+            build/artifact/bestclient-malinka-source.tar.gz '${{ matrix.platform }}' \
+            build/check/disposable-install > build/check/result.log 2>&1
+          result=$?
+          cat build/check/result.log
+          if [[ "$result" -eq 0 ]]; then
+            echo "::notice title=Actual artifact installation regression::$(tail -n1 build/check/result.log)"
+          else
+            while IFS= read -r line; do
+              echo "::error title=Actual artifact installation regression::$line"
+            done < <(tail -n20 build/check/result.log)
+          fi
+          exit "$result"
+      - name: Retain temporary check log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: one-shot-package-check-${{ matrix.platform }}
+          path: build/check/result.log
+          retention-days: 7
+          if-no-files-found: ignore
