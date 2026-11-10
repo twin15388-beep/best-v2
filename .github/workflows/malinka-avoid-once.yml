@@ -629,7 +629,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
   transfer:
-    if: ${{ inputs.native_run != '' && inputs.native_artifact != '' }}
+    if: ${{ (github.event_name == 'push' && contains(github.event.head_commit.message, '[Windows delivery]')) || (inputs.native_run != '' && inputs.native_artifact != '') }}
     name: Transfer fresh verified Windows artifact
     permissions:
       contents: write
@@ -639,8 +639,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_COMMIT: ${{ inputs.source || 'facfc8563106d5421de5c73f861e2e5df342f6ad' }}
-      NATIVE_RUN: ${{ inputs.native_run }}
-      NATIVE_ARTIFACT: ${{ inputs.native_artifact }}
+      NATIVE_RUN: ${{ inputs.native_run || '42908808859' }}
+      NATIVE_ARTIFACT: ${{ inputs.native_artifact || '13807725269' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Download the existing successful Windows artifact on the runner
@@ -656,42 +656,73 @@ jobs:
           set -euo pipefail
           mkdir -p build/delivery-transfer
           cat > build/delivery-transfer/transfer.py <<'PYTHON'
-          # One-shot transfer of an existing public CI artifact; no commit/ref contains
-          # the payload. Chunked unreferenced blob objects avoid the failed Azure URL.
-          import base64,hashlib,json,os,re,struct,subprocess,zipfile
+          # Disposable runner-only transfer, never a committed payload/ref/release.
+          import base64, hashlib, json, os, re, struct, subprocess, zipfile
           from pathlib import Path
-          ROOT=Path('build/delivery-transfer');ROOT.mkdir(parents=True,exist_ok=True)
-          A=Path('build/artifact');P=A/'bestclient-malinka-windows-x86_64.zip'
-          EXPECTED_COMMIT=os.environ['SOURCE_COMMIT']
-          assert re.fullmatch('[0-9a-f]{40}',EXPECTED_COMMIT)
-          NATIVE_RUN=int(os.environ['NATIVE_RUN']);NATIVE_ARTIFACT=int(os.environ['NATIVE_ARTIFACT'])
-          assert NATIVE_RUN>0 and NATIVE_ARTIFACT>0
-          assert (A/'build-environment.txt').read_text().splitlines()[0]==EXPECTED_COMMIT
-          sidecar=(P.with_name(P.name+'.sha256')).read_text().strip().split()
-          assert len(sidecar)==2 and re.fullmatch('[0-9a-f]{64}',sidecar[0]) and sidecar[1]==P.name
-          assert 0<P.stat().st_size<=512*1024*1024
-          h=hashlib.sha256()
-          with P.open('rb') as f:
-           for b in iter(lambda:f.read(1024*1024),b''):h.update(b)
-          assert h.hexdigest()==sidecar[0]
+
+          ROOT = Path('build/delivery-transfer')
+          ROOT.mkdir(parents=True, exist_ok=True)
+          A = Path('build/artifact')
+          P = A / 'bestclient-malinka-windows-x86_64.zip'
+          S = A / 'bestclient-malinka-source.tar.gz'
+          EXPECTED_COMMIT = os.environ['SOURCE_COMMIT']
+          assert re.fullmatch('[0-9a-f]{40}', EXPECTED_COMMIT)
+          NATIVE_RUN = int(os.environ['NATIVE_RUN'])
+          NATIVE_ARTIFACT = int(os.environ['NATIVE_ARTIFACT'])
+          assert NATIVE_RUN > 0 and NATIVE_ARTIFACT > 0
+          artifact = json.loads(subprocess.check_output(['gh', 'api', f'repos/twin15388-beep/best-v2/actions/artifacts/{NATIVE_ARTIFACT}'], text=True))
+          assert artifact['id'] == NATIVE_ARTIFACT and artifact['name'] == 'malinka-windows-x86_64' and not artifact['expired']
+          assert artifact['workflow_run']['id'] == NATIVE_RUN and artifact['workflow_run']['head_sha'] == EXPECTED_COMMIT
+          assert (A / 'build-environment.txt').read_text().splitlines()[0] == EXPECTED_COMMIT
+
+          def digest(p):
+              assert p.is_file() and not p.is_symlink() and 0 < p.stat().st_size <= 100 * 1024 * 1024
+              h = hashlib.sha256()
+              with p.open('rb') as f:
+                  for b in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(b)
+              return h.hexdigest()
+
+          package_hash = digest(P)
+          source_hash = digest(S)
+          sidecar = P.with_name(P.name + '.sha256').read_text().strip().split()
+          assert len(sidecar) == 2 and sidecar[0] == package_hash and sidecar[1] == P.name
           with zipfile.ZipFile(P) as z:
-           infos=z.infolist();assert 0<len(infos)<=10000 and sum(i.file_size for i in infos)<=2*1024*1024*1024
-           assert all(i.file_size<=512*1024*1024 and not i.filename.startswith('/') and '..' not in i.filename.split('/') for i in infos)
-           assert z.testzip() is None
-           assert 'DDNet.exe' in z.namelist() and 'bestclient-updater.exe' in z.namelist() and 'malinka-update.manifest' in z.namelist()
-           exe=z.read('DDNet.exe');assert exe[:2]==b'MZ';pe=struct.unpack_from('<I',exe,0x3c)[0]
-           assert pe<=len(exe)-26 and exe[pe:pe+4]==b'PE\0\0' and struct.unpack_from('<H',exe,pe+4)[0]==0x8664 and struct.unpack_from('<H',exe,pe+24)[0]==0x20b
-           assert b'BestClient-Malinka:api=1;version=0.1.1;upstream=cf192e3fb8590dbe2e4f66a191aa6616beff6975' in exe
-           meta={'artifact_run':NATIVE_RUN,'artifact_id':NATIVE_ARTIFACT,'source_commit':EXPECTED_COMMIT,'file_name':P.name,'size_bytes':P.stat().st_size,'sha256':h.hexdigest(),'zip_entries':len(infos),'exe_size_bytes':len(exe),'exe_sha256':hashlib.sha256(exe).hexdigest(),'machine':'AMD64','chunks':[]}
-          with P.open('rb') as f:
-           while b:=f.read(24*1024*1024):
-            payload=ROOT/'blob-input.json';payload.write_text(json.dumps({'content':base64.b64encode(b).decode('ascii'),'encoding':'base64'}),encoding='ascii')
-            answer=json.loads(subprocess.check_output(['gh','api','--method','POST','repos/twin15388-beep/best-v2/git/blobs','--input',str(payload)],text=True))
-            oid=answer['sha'];assert re.fullmatch('[0-9a-f]{40}',oid) and oid==hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
-            meta['chunks'].append({'index':len(meta['chunks']),'size_bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'git_blob_sha':oid})
-            payload.unlink()
-          (ROOT/'transfer.json').write_text(json.dumps(meta,indent=2),encoding='ascii')
-          print('::notice title=Verified Windows transfer metadata::'+json.dumps(meta,separators=(',',':')),flush=True)
+              infos = z.infolist()
+              assert 0 < len(infos) <= 10000 and sum(i.file_size for i in infos) <= 2 * 1024 * 1024 * 1024
+              assert len({i.filename for i in infos}) == len(infos)
+              assert all(i.file_size <= 512 * 1024 * 1024 and not i.filename.startswith('/') and '..' not in i.filename.split('/') for i in infos)
+              assert z.testzip() is None
+              assert {'DDNet.exe', 'bestclient-updater.exe', 'malinka-update.manifest'} <= set(z.namelist())
+              exe = z.read('DDNet.exe')
+              assert len(exe) >= 64 and exe[:2] == b'MZ'
+              pe = struct.unpack_from('<I', exe, 0x3c)[0]
+              assert pe <= len(exe) - 26 and exe[pe:pe + 4] == b'PE\0\0'
+              assert struct.unpack_from('<H', exe, pe + 4)[0] == 0x8664 and struct.unpack_from('<H', exe, pe + 24)[0] == 0x20b
+              assert b'BestClient-Malinka:api=1;version=0.1.1;upstream=cf192e3fb8590dbe2e4f66a191aa6616beff6975' in exe
+              manifest = z.read('malinka-update.manifest').decode('utf-8')
+              assert re.search(r'^version 0\.1\.1$', manifest, re.M)
+              assert re.search(r'^source_sha256 ' + source_hash + '$', manifest, re.M)
+              meta = {'artifact_run': NATIVE_RUN, 'artifact_id': NATIVE_ARTIFACT, 'source_commit': EXPECTED_COMMIT,
+                      'file_name': P.name, 'size_bytes': P.stat().st_size, 'sha256': package_hash, 'zip_entries': len(infos),
+                      'exe_size_bytes': len(exe), 'exe_sha256': hashlib.sha256(exe).hexdigest(), 'machine': 'AMD64', 'chunks': [],
+                      'companion_source': {'file_name': S.name, 'size_bytes': S.stat().st_size, 'sha256': source_hash, 'chunks': []}}
+
+          def transfer(p, record):
+              with p.open('rb') as f:
+                  while b := f.read(24 * 1024 * 1024):
+                      payload = ROOT / 'blob-input.json'
+                      payload.write_text(json.dumps({'content': base64.b64encode(b).decode('ascii'), 'encoding': 'base64'}), encoding='ascii')
+                      answer = json.loads(subprocess.check_output(['gh', 'api', '--method', 'POST', 'repos/twin15388-beep/best-v2/git/blobs', '--input', str(payload)], text=True))
+                      oid = answer['sha']
+                      assert re.fullmatch('[0-9a-f]{40}', oid) and oid == hashlib.sha1(b'blob ' + str(len(b)).encode() + b'\0' + b).hexdigest()
+                      record['chunks'].append({'index': len(record['chunks']), 'size_bytes': len(b), 'sha256': hashlib.sha256(b).hexdigest(), 'git_blob_sha': oid})
+                      payload.unlink()
+
+          transfer(P, meta)
+          transfer(S, meta['companion_source'])
+          (ROOT / 'transfer.json').write_text(json.dumps(meta, indent=2), encoding='ascii')
+          print('::notice title=Verified Windows transfer metadata::' + json.dumps(meta, separators=(',', ':')), flush=True)
           PYTHON
           python3 build/delivery-transfer/transfer.py
       - name: Retain transfer metadata only
