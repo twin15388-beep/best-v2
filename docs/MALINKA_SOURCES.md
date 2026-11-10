@@ -81,3 +81,14 @@ Importer оставляет записи preview-only до полной current-
 - `src/base/hash_libtomcrypt.cpp` содержит public-domain SHA-256 adaptation с исходной атрибуцией; JSON parser сохраняет BSD notice. Никаких KRX EXE/DLL/resources в пакет исходников не добавлено.
 
 Собственная сборка не получает `BESTCLIENT_OFFICIAL_CODE`. Ни чужие credentials, ни подтверждение официального статуса не воссозданы. Remote `fake` badge — отдельная неразрешённая зависимость внешнего сервиса; см. `MALINKA_STATUS.md`.
+
+
+## Дополнительная сверка Avoid controls по изображениям
+
+Повторно просмотрены PNG из того же pinned docs commit `8c193ca2a27cc7ba5d4e2d6ad7686c6e99910c43`:
+
+- `images/legit-menu.png`, Git blob `6199bec3090b470110bef5a2b97d9c78360e005d`, 196707 bytes: видны **Quality 1000**, **Life Priority 298**, а также Check Ticks 7, Randomness 6, Direction Priority 235, Hook Priority 504. Это значения на изображении, **не доказанные defaults или полные ranges бинарника 1.32**.
+- `images/blatant-menu.png`, blob `119c7153e63f741367d874db31593775160c5daf`, 245167 bytes: видны Check Ticks 26, Kick in Ticks 27, Unfreeze Ticks 26, Segments 12, FOV 360. Там Auto Aim и Aim Assist — отдельные checkboxes; в этой адаптации пока взаимоисключающий mode. Точное совместное поведение оригинала не установлено.
+- `images/avoid-menu.png`, blob `67459a7beb686df98252f088361fa2760dc0fcf9`, содержит Pilot Bot, появившийся позже 1.32. Поэтому screenshot не выдаётся за точное меню именно 1.32.
+
+Для независимого Legit planner расширены Quality **1..1000** и Life Priority **0..1000**, чтобы как минимум принимать измеренные 1000/298. Это выбранные bounded ceilings, не восстановленные original maxima. Quality действительно задаёт число rollout-ов (1000 максимум), tree имеет не более1001 nodes; Life выше100 не clamp-ится. Старые defaults16/13 и относительный scale ранее сохраняемых life weights не изменены. Большие Quality/Check Ticks могут задерживать кадры; UI tooltip предупреждает об этом. Ни performance на Windows, ни exact KRX decision parity этими изображениями не доказаны.

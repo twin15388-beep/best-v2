@@ -153,7 +153,7 @@ static void EndMalinkaScrollColumns(CUIRect MainView, CMalinkaScrollState &State
 static size_t BeginMalinkaSection(CMenus *pMenus, CUIRect &Column, CMalinkaScrollState &State, const char *pTitle);
 static void FinishMalinkaSection(CUIRect &Column, CMalinkaScrollState &State, size_t Index);
 static void DoMalinkaCheckBoxes(CMenus *pMenus, CUIRect &View, const SBoolEntry *pEntries, size_t Count);
-static void DoMalinkaSlider(CMenus *pMenus, CUIRect &View, int *pValue, const char *pLabel, int Min, int Max, const char *pSuffix = "");
+static void DoMalinkaSlider(CMenus *pMenus, CUIRect &View, int *pValue, const char *pLabel, int Min, int Max, const char *pSuffix = "", const char *pTooltip = nullptr);
 static bool DoMalinkaButton(CMenus *pMenus, CUIRect &View, CButtonContainer &ButtonId, const char *pLabel, ColorRGBA Color = ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f));
 static void DoMalinkaEditBox(CMenus *pMenus, CUIRect &View, CLineInput *pInput, const char *pLabel, const char *pDefault, char *pBuf, size_t BufSize);
 static void DoMalinkaColorPicker(CMenus *pMenus, CUIRect &View, CButtonContainer &ResetId, const char *pLabel, unsigned *pColorValue, ColorRGBA DefaultColor);
@@ -298,13 +298,15 @@ static void DoMalinkaCheckBoxes(CMenus *pMenus, CUIRect &View, const SBoolEntry 
 		DoMalinkaCheckBox(pMenus, pEntries[i].m_pValue, pEntries[i].m_pLabel, pEntries[i].m_pValue, &View, gs_MalinkaLineSize);
 }
 
-static void DoMalinkaSlider(CMenus *pMenus, CUIRect &View, int *pValue, const char *pLabel, int Min, int Max, const char *pSuffix)
+static void DoMalinkaSlider(CMenus *pMenus, CUIRect &View, int *pValue, const char *pLabel, int Min, int Max, const char *pSuffix, const char *pTooltip)
 {
 	if(MalinkaUnavailable(pMenus, View, pLabel, pValue))
 		return;
 	CUIRect Button;
 	View.HSplitTop(gs_MalinkaLineSize, &Button, &View);
 	pMenus->MenuUi()->DoScrollbarOption(pValue, pValue, &Button, pLabel, Min, Max, &CUi::ms_LinearScrollbarScale, 0, pSuffix);
+	if(pTooltip)
+		pMenus->MalinkaTooltip(pValue, &Button, pTooltip);
 }
 
 static bool DoMalinkaButton(CMenus *pMenus, CUIRect &View, CButtonContainer &ButtonId, const char *pLabel, ColorRGBA Color)
@@ -963,11 +965,11 @@ void RenderMalinkaAvoid(CMenus *pMenus, CUIRect MainView)
 
 		Column.HSplitTop(gs_MalinkaSectionSpacing, nullptr, &Column);
 		const size_t PrioritySection = BeginMalinkaSection(pMenus, Column, s_ScrollState, Localize("Priority"));
-		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidLegitQuality, Localize("Quality"), 1, 64);
+		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidLegitQuality, Localize("Quality"), 1, 1000, "", Localize("Number of full-horizon simulations. High Quality or Check Ticks can stall frames; lower both if needed. Existing presets are not changed."));
 		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidLegitRandomness, Localize("Randomness"), 0, 64);
 		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidLegitDirectionPriority, Localize("Direction Priority"), 0, 1000);
 		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidLegitHookPriority, Localize("Hook Priority"), 0, 1000);
-		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidLegitLifePriority, Localize("Life Priority"), 0, 100);
+		DoMalinkaSlider(pMenus, Column, &g_Config.m_MalinkaAvoidLegitLifePriority, Localize("Life Priority"), 0, 1000);
 		FinishMalinkaSection(Column, s_ScrollState, PrioritySection);
 	}
 	else if(g_Config.m_MalinkaAvoidMode == 2)

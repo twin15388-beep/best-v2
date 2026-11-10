@@ -12,7 +12,9 @@
 namespace Malinka
 {
 constexpr int AVOID_MAX_TICKS = 60;
-constexpr int AVOID_MAX_ITERATIONS = 64;
+// The pinned documentation screenshot shows Quality 1000. This independent
+// ceiling admits that measured setting; it is not a recovered binary maximum.
+constexpr int AVOID_MAX_ITERATIONS = 1000;
 constexpr int AVOID_MAX_ACTIONS = 6;
 
 enum class EAvoidPrediction
@@ -92,7 +94,7 @@ struct SLegitSearchResult
 // iteration evaluates one complete sequence in a private world supplied by the
 // caller. Quality is an actual simulation budget, Randomness the UCT exploration
 // constant, and the three weights reward lifetime and matching user input.
-// At most 65 nodes, 64 rollouts, 60 inputs/rollout. No allocation or global RNG.
+// At most 1001 nodes, 1000 rollouts, 60 inputs/rollout. No allocation or global RNG.
 // Any unavailable simulation invalidates this result: failure is never safety.
 template<typename FEvaluate>
 SLegitSearchResult SearchLegitAvoid(const SAvoidActions &Actions, int Ticks, int Quality, int Randomness,
@@ -126,7 +128,9 @@ SLegitSearchResult SearchLegitAvoid(const SAvoidActions &Actions, int Ticks, int
 	const double Exploration = std::clamp(Randomness, 0, 64) / 64.0;
 	const double DirWeight = std::clamp(DirectionWeight, 0, 1000) / 1000.0;
 	const double HWeight = std::clamp(HookWeight, 0, 1000) / 1000.0;
-	const double LWeight = std::clamp(LifeWeight, 0, 100) / 100.0;
+	// Retain the existing 0..100 scale so saved presets keep their relative
+	// weight, while admitting the documented Life Priority 298 and higher.
+	const double LWeight = std::clamp(LifeWeight, 0, 1000) / 100.0;
 	double BestReward = -std::numeric_limits<double>::infinity();
 	bool BestSafe = false;
 	int BestLifetime = 0;

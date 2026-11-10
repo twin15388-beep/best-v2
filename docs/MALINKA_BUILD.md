@@ -55,7 +55,7 @@ Linux package с system libraries не является полностью ст�
 
 ## Flat Malinka update ZIP
 
-1. Поднять `MALINKA_VERSION` в `src/game/client/components/malinka/build_identity.h` **до** сборки. Релизный tag должен быть `malinka-vX.Y.Z` и совпадать с этой версией. Текущая 0.1.0 — development version, не заявление о полном переносе.
+1. Поднять `MALINKA_VERSION` в `src/game/client/components/malinka/build_identity.h` **до** сборки. Релизный tag должен быть `malinka-vX.Y.Z` и совпадать с этой версией. Текущая 0.1.1 — development version, не заявление о полном переносе.
 2. Создать source archive **того же commit**, который собран. На committed checkout:
 
 ```sh
@@ -223,3 +223,19 @@ add_path $DATADIR
 ```
 
 Запускать из этой тестовой папки. Это отдельный локальный профиль,не доказательство проверки в игре;в оригинальном ZIP storage.cfg не менялся.
+
+
+## Avoid / Insert: проверка исправлений 0.1.1
+
+Guarded source `3c7d5865fdb80d85ce932c6aae8f8296eb47f8fd`: full ordinary [CI42905828723](https://github.com/twin15388-beep/best-v2/actions/runs/42905828723) **SUCCESS Windows/MSVC x64 + Linux, watch exit0**, включая client/updater/package. Выполненные commands: `cmake --build build-release --config Release --target game-client bestclient-updater --parallel 2` и `cmake --build build-release --config Release --target package_zip --parallel 2`. Это до расширения Quality/Life ranges; новый full build ещё ожидается.
+
+Свежая isolated helper проверка расширенных ranges:
+
+```sh
+g++ -std=c++20 -O1 -g -Wall -Wextra -Werror -Wpedantic \
+  -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc \
+  .artifacts/avoid-review/check_policy.cpp -o build/local/check-avoid-policy-5
+ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/local/check-avoid-policy-5
+```
+
+**Compile0/run0**, 29656558 checks/0 failures/595204 rollouts. Fixtures/logs ignored; постоянный test suite не добавлен. Current component fixture использует actual client objects из CMake compile_commands/Ninja link, четыре production translation units ASan/UBSan и `-fno-access-control` только для fixture wiring. Не whole-program instrumentation; LSan отключён только для no-renderer component fixture из-за обычной renderer-owned CGameConsole logger ownership, helper LSan включён. Actual Insert renderer/gameplay **not verified in-game**.
