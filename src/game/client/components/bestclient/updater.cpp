@@ -366,6 +366,7 @@ void CUpdater::StartReleaseFetch()
 	BuildGitHubReleasesUrl(aUrl, sizeof(aUrl));
 	m_TaskKind = ETaskKind::FETCH_RELEASE;
 	m_pCurrentTask = HttpGet(aUrl);
+	m_pCurrentTask->RequireHttps();
 	m_pCurrentTask->MaxResponseSize(4 * 1024 * 1024);
 	m_pCurrentTask->HeaderString("Accept", "application/vnd.github+json");
 	m_pCurrentTask->HeaderString("User-Agent", CLIENT_NAME);
@@ -435,6 +436,7 @@ void CUpdater::StartArchiveDownload()
 	char aAbsolutePath[IO_MAX_PATH_LENGTH];
 	m_pStorage->GetBinaryPathAbsolute(m_aArchivePath, aAbsolutePath, sizeof(aAbsolutePath));
 	m_pCurrentTask = HttpGetFile(m_aArchiveUrl, m_pStorage, aAbsolutePath, IStorage::TYPE_ABSOLUTE);
+	m_pCurrentTask->RequireHttps();
 	m_pCurrentTask->ExpectSha256(ExpectedSha256);
 	m_pCurrentTask->MaxResponseSize(512ll * 1024 * 1024);
 	m_pCurrentTask->HeaderString("User-Agent", CLIENT_NAME);

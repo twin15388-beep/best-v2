@@ -18,17 +18,25 @@ inline uint32_t ReadLe32(const unsigned char *p)
 	return p[0] | (static_cast<uint32_t>(p[1]) << 8) | (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
 }
 
-inline bool ExtractZip(const fs::path &Archive, const fs::path &Destination, std::string &Error)
+struct SZipLimits
+{
+	uint64_t m_ArchiveBytes = MAX_FILE_SIZE;
+	uint64_t m_MemberBytes = MAX_FILE_SIZE;
+	uint64_t m_TotalBytes = MAX_TOTAL_SIZE;
+	size_t m_Entries = MAX_FILES;
+};
+
+inline bool ExtractZip(const fs::path &Archive, const fs::path &Destination, std::string &Error, SZipLimits Limits = {})
 {
 	std::error_code Ec;
 	const auto Size = fs::file_size(Archive, Ec);
-	if(Ec || Size < 22 || Size > MAX_FILE_SIZE || !NoLinks(Archive) || !NoLinks(Destination))
+	if(Ec || Size < 22 || Size > Limits.m_ArchiveBytes || !NoLinks(Archive) || !NoLinks(Destination))
 		return Error = "Update archive is missing, oversized, or linked.", false;
 	if(fs::exists(Destination, Ec) || Ec)
 		return Error = "Refusing to reuse an existing extraction directory.", false;
 	std::vector<unsigned char> vZip(static_cast<size_t>(Size));
 	std::ifstream In(Archive, std::ios::binary);
-	if(!In.read(reinterpret_cast<char *>(vZip.data()), static_cast<std::streamsize>(Size)))
+	if(!In.read(reinterpret_cast<char *>(vZip.data()), static_cast<std::streamsize>(Size)) || In.peek() != std::char_traits<char>::eof() || In.bad())
 		return Error = "Truncated update archive read.", false;
 	const auto Span = [&](uint64_t Offset, uint64_t Count) { return Offset <= Size && Count <= Size - Offset; };
 	uint64_t End = Size - 22;
@@ -51,7 +59,7 @@ inline bool ExtractZip(const fs::path &Archive, const fs::path &Destination, std
 	const uint16_t Count = ReadLe16(pEnd + 10);
 	const uint32_t DirectorySize = ReadLe32(pEnd + 12);
 	const uint32_t DirectoryOffset = ReadLe32(pEnd + 16);
-	if(ReadLe16(pEnd + 4) || ReadLe16(pEnd + 6) || ReadLe16(pEnd + 8) != Count || Count == 0 || Count > MAX_FILES ||
+	if(ReadLe16(pEnd + 4) || ReadLe16(pEnd + 6) || ReadLe16(pEnd + 8) != Count || Count == 0 || Count > Limits.m_Entries ||
 		!Span(DirectoryOffset, DirectorySize) || static_cast<uint64_t>(DirectoryOffset) + DirectorySize != End)
 		return Error = "Unsupported ZIP64/multidisk archive or invalid entry count.", false;
 	struct SEntry
@@ -89,8 +97,8 @@ inline bool ExtractZip(const fs::path &Archive, const fs::path &Destination, std
 		if(!Names.insert(Canonical).second)
 			return Error = "Duplicate/aliased ZIP entry.", false;
 		SEntry Entry{Name, ReadLe32(p + 42), ReadLe32(p + 20), ReadLe32(p + 24), ReadLe32(p + 16), ReadLe16(p + 10), Directory, (ReadLe32(p + 38) >> 16) & 0777};
-		if((Entry.m_Method != 0 && Entry.m_Method != 8) || Entry.m_Unpacked > MAX_FILE_SIZE ||
-			(Directory && (Entry.m_Packed || Entry.m_Unpacked)) || Total + Entry.m_Unpacked > MAX_TOTAL_SIZE)
+		if((Entry.m_Method != 0 && Entry.m_Method != 8) || Entry.m_Unpacked > Limits.m_MemberBytes ||
+			(Directory && (Entry.m_Packed || Entry.m_Unpacked)) || Total > Limits.m_TotalBytes || Entry.m_Unpacked > Limits.m_TotalBytes - Total)
 			return Error = "Unsupported ZIP compression or decompression limit exceeded.", false;
 		Total += Entry.m_Unpacked;
 		vEntries.push_back(std::move(Entry));

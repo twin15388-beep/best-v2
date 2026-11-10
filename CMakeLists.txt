@@ -3134,6 +3134,7 @@ if(CLIENT)
     components/malinka/file_safety.cpp
     components/malinka/file_safety.h
     components/malinka/input_helpers.h
+    components/malinka/krx_replay_io.h
     components/malinka/laserunfreeze.cpp
     components/malinka/laserunfreeze.h
     components/malinka/menus.cpp
@@ -3141,6 +3142,9 @@ if(CLIENT)
     components/malinka/misc.h
     components/malinka/panic.h
     components/malinka/replay_io.h
+    components/malinka/replay_vault.cpp
+    components/malinka/replay_vault.h
+    components/malinka/replay_vault_io.h
     components/malinka/replay_metadata.h
     components/malinka/replay_paths.h
     components/malinka/simulation_step.h

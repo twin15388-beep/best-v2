@@ -4,6 +4,7 @@
 #include "tas.h"
 #include "input_helpers.h"
 #include "replay_io.h"
+#include "krx_replay_io.h"
 #include "replay_paths.h"
 
 #include <base/hash.h>
@@ -42,6 +43,14 @@
 
 namespace
 {
+
+bool IsVaultRelativePath(const std::filesystem::path &Relative)
+{
+	if(Relative.empty())
+		return false;
+	const auto Top = Malinka::Replay::Utf8(*Relative.begin());
+	return str_comp_nocase(Top.c_str(), "vault") == 0;
+}
 
 bool PositionsMatch(vec2 Actual, vec2 Expected, float Tolerance)
 {
@@ -154,7 +163,14 @@ void CMalinkaTas::OnReset()
 {
 	ShutdownWorld();
 	m_vFrames.clear();
-	m_Metadata = {};
+	m_ImportedPending = false;
+	m_ImportSourcePath.clear();
+	m_ImportMatchesPre = m_ImportMatchesPost = false;
+	// Reset without constructing an allocating temporary during disconnect.
+	m_Metadata.m_Map.clear();
+	m_Metadata.m_MapSha256.clear();
+	m_Metadata.m_Physics.clear();
+	m_Metadata.m_Legacy = false;
 	m_aObservedInputs = {};
 	m_aHaveInput = {};
 	m_aWorldClientIds = {-1, -1};
@@ -213,20 +229,30 @@ float CMalinkaTas::GetStepRate() const
 	return m_Playing ? 50.0f : static_cast<float>(std::clamp(g_Config.m_MalinkaTasTps, 1, 50));
 }
 
-void CMalinkaTas::SetCurrentMapMetadata()
+Malinka::Replay::SMetadata CMalinkaTas::CurrentMapMetadata() const
 {
 	char aSha256[SHA256_MAXSTRSIZE];
 	sha256_str(GameClient()->Map()->Sha256(), aSha256, sizeof(aSha256));
-	m_Metadata = {GameClient()->Map()->FullName(), aSha256, Malinka::Replay::PHYSICS, false};
+	return {GameClient()->Map()->FullName(), aSha256, Malinka::Replay::PHYSICS, false};
+}
+
+void CMalinkaTas::SetCurrentMapMetadata()
+{
+	m_Metadata = CurrentMapMetadata();
+}
+
+bool CMalinkaTas::MapMatches(const Malinka::Replay::SMetadata &Metadata) const
+{
+	if(Metadata.m_Legacy || !GameClient()->Map()->IsLoaded() || Metadata.m_Physics != Malinka::Replay::PHYSICS)
+		return false;
+	char aSha256[SHA256_MAXSTRSIZE];
+	sha256_str(GameClient()->Map()->Sha256(), aSha256, sizeof(aSha256));
+	return Metadata.m_MapSha256 == aSha256;
 }
 
 bool CMalinkaTas::CurrentMapMatches() const
 {
-	if(m_Metadata.m_Legacy || !GameClient()->Map()->IsLoaded() || m_Metadata.m_Physics != Malinka::Replay::PHYSICS)
-		return false;
-	char aSha256[SHA256_MAXSTRSIZE];
-	sha256_str(GameClient()->Map()->Sha256(), aSha256, sizeof(aSha256));
-	return m_Metadata.m_MapSha256 == aSha256;
+	return !m_ImportedPending && MapMatches(m_Metadata);
 }
 
 void CMalinkaTas::EnsureWorldInitialized()
@@ -267,6 +293,8 @@ void CMalinkaTas::EnsureWorldInitialized()
 
 void CMalinkaTas::ShutdownWorld()
 {
+	m_vImportBeforePositions.clear();
+	m_ImportMatchesPre = m_ImportMatchesPost = false;
 	m_pValidationWorld.reset();
 	m_pWorldPredicted.reset();
 	m_pWorld.reset();
@@ -299,6 +327,8 @@ void CMalinkaTas::StartRecording()
 		return;
 	}
 	m_vFrames.clear();
+	m_ImportedPending = false;
+	m_ImportSourcePath.clear();
 	SetCurrentMapMetadata();
 	m_PlayCursor = 0;
 	m_Accumulator = 0.0;
@@ -370,6 +400,8 @@ bool CMalinkaTas::GetReplaySavePath(char *pBuf, int BufSize, bool AutoSave) cons
 	}
 	else
 		Relative.concat(".tas");
+	if(IsVaultRelativePath(Relative))
+		return m_LastIoError = "Vault snapshots are read-only. Choose a new name outside vault/ for a conversion.", false;
 	const auto Root = Malinka::Replay::Root(Storage());
 	const auto Path = Root / Relative;
 	if(!Malinka::Replay::WithinRoot(Root, Path))
@@ -387,26 +419,63 @@ bool CMalinkaTas::GetReplaySavePath(char *pBuf, int BufSize, bool AutoSave) cons
 
 bool CMalinkaTas::SaveReplayToPath(const char *pPath) const
 {
+	if(m_ImportedPending)
+		return m_LastIoError = "Imported KRX inputs are preview-only. Validate Replay on the matching map/start before saving a converted Malinka file.", false;
 	const auto Path = std::filesystem::u8path(pPath);
+	if(!m_ImportSourcePath.empty())
+	{
+		const auto Source = std::filesystem::u8path(m_ImportSourcePath);
+		std::error_code Ec;
+		const bool SameFile = std::filesystem::equivalent(Path, Source, Ec);
+		if(SameFile || std::filesystem::weakly_canonical(Path) == Source)
+			return m_LastIoError = "Choose a new save name. A conversion must not overwrite its original KRX file.", false;
+	}
 	const auto Root = Malinka::Replay::Root(Storage());
 	if(!Malinka::Replay::WithinRoot(Root, Path) ||
 		!Malinka::Replay::WithinRoot(Root, std::filesystem::path(Path).concat(".new")) ||
 		!Malinka::Replay::WithinRoot(Root, std::filesystem::path(Path).concat(".bak")))
 		return m_LastIoError = "Replay path escapes the save directory.", false;
+	if(IsVaultRelativePath(std::filesystem::weakly_canonical(Path).lexically_relative(std::filesystem::weakly_canonical(Root))))
+		return m_LastIoError = "Vault snapshots are read-only. Choose a new name outside vault/ for a conversion.", false;
 	return Malinka::Replay::Write(Path, m_vFrames, m_Metadata, m_LastIoError);
 }
 
 bool CMalinkaTas::LoadReplayFromPath(const char *pPath)
 {
+	std::string Encoded;
+	if(!Malinka::Files::ReadBounded(std::filesystem::u8path(pPath), Malinka::Replay::MAX_FILE_BYTES, Encoded))
+		return m_LastIoError = "Replay read failed, changed during reading, or exceeds 64 MiB.", false;
 	std::vector<SFrame> vFrames;
 	Malinka::Replay::SMetadata Metadata;
-	if(!Malinka::Replay::Read(std::filesystem::u8path(pPath), vFrames, Metadata, m_LastIoError))
+	size_t NormalizedZeroAimFrames = 0;
+	const bool Imported = !Encoded.starts_with(Malinka::Replay::MAGIC) && !Encoded.starts_with("PSTATAS2");
+	if(Imported)
+	{
+		Malinka::KrxReplay::SInfo Info;
+		if(!Malinka::KrxReplay::ReadData(Encoded, vFrames, Info, m_LastIoError))
+			return false;
+		// This name came from the file. No initial world, map SHA or original
+		// physics identity is invented, and no phase is assumed from the name.
+		Metadata = {std::move(Info.m_Map), "", "KRX-sample-schema-unverified", true};
+		NormalizedZeroAimFrames = Info.m_NormalizedZeroAimFrames;
+	}
+	else if(!Malinka::Replay::ReadData(std::move(Encoded), vFrames, Metadata, m_LastIoError))
 		return false;
+	// Compute all potentially allocating state before replacing the live buffer.
+	std::string ImportSource = Imported ? Malinka::Replay::Utf8(std::filesystem::weakly_canonical(std::filesystem::u8path(pPath))) : "";
 	ShutdownWorld();
 	m_vFrames = std::move(vFrames);
 	m_Metadata = std::move(Metadata);
+	m_ImportSourcePath = std::move(ImportSource);
+	m_ImportedPending = Imported;
 	m_PrimarySlot = g_Config.m_ClDummy;
 	m_PlayCursor = 0;
+	if(NormalizedZeroAimFrames)
+	{
+		char aMessage[256];
+		str_format(aMessage, sizeof(aMessage), "%llu zero-aim frames normalized to DDNet's (0,-1). Original file unchanged; preview only until complete physics validation.", static_cast<unsigned long long>(NormalizedZeroAimFrames));
+		PushTasWarning("KRX import", aMessage);
+	}
 	return true;
 }
 
@@ -428,6 +497,12 @@ bool CMalinkaTas::AtReplayStart() const
 
 bool CMalinkaTas::StartPlayback()
 {
+	if(m_ImportedPending)
+	{
+		PushTasWarning("KRX import", "Preview only: run Validate Replay at the matching map/start before playback. No initial KRX physics state is present in this sample schema.");
+		g_Config.m_MalinkaLoadReplay = 0;
+		return false;
+	}
 	if(m_vFrames.empty())
 	{
 		char aPath[IO_MAX_PATH_LENGTH];
@@ -438,7 +513,7 @@ bool CMalinkaTas::StartPlayback()
 			return false;
 		}
 	}
-	if(!CurrentMapMatches() || GameClient()->m_FastPractice.Enabled() || GameClient()->m_MalinkaFent.IsRunning())
+	if(m_ImportedPending || !CurrentMapMatches() || GameClient()->m_FastPractice.Enabled() || GameClient()->m_MalinkaFent.IsRunning())
 	{
 		PushTasWarning("TAS", "Playback blocked: map hash / physics mismatch, legacy format, or another private world is active.");
 		g_Config.m_MalinkaLoadReplay = 0;
@@ -525,6 +600,8 @@ void CMalinkaTas::ClearReplay(bool KillPlayer)
 	StopPlayback();
 	StopRecording();
 	m_vFrames.clear();
+	m_ImportedPending = false;
+	m_ImportSourcePath.clear();
 	ShutdownWorld();
 }
 
@@ -751,8 +828,9 @@ void CMalinkaTas::RunValidationSlice()
 {
 	if(!m_pValidationWorld)
 		return;
-	if(!CurrentMapMatches() || m_PrimarySlot < 0 || m_PrimarySlot >= NUM_DUMMIES ||
+	if(!MapMatches(m_ImportedPending ? m_ImportTargetMetadata : m_Metadata) || m_PrimarySlot < 0 || m_PrimarySlot >= NUM_DUMMIES ||
 		m_ValidationCursor < 0 || m_ValidationCursor > static_cast<int>(m_vFrames.size()) ||
+		(m_ImportedPending && m_vImportBeforePositions.size() != m_vFrames.size()) ||
 		m_aWorldClientIds[0] != GameClient()->m_aLocalIds[0] || m_aWorldClientIds[1] != GameClient()->m_aLocalIds[1])
 	{
 		m_pValidationWorld.reset();
@@ -761,21 +839,36 @@ void CMalinkaTas::RunValidationSlice()
 		PushTasWarning("TAS validation", "Map or participant identity changed. Validation/playback stopped.");
 		return;
 	}
+	const auto Diverged = [&] {
+		char aMessage[256];
+		str_format(aMessage, sizeof(aMessage), "Physics diverged at frame %d. Current world state differs from the recording; playback blocked.", m_ValidationCursor);
+		m_pValidationWorld.reset();
+		if(m_ValidationForPlayback)
+			StopPlayback();
+		PushTasWarning("TAS validation", aMessage);
+	};
 	const int64_t Deadline = time_get() + time_freq() / 250;
 	for(int Budget = 0; Budget < 64 && m_ValidationCursor < static_cast<int>(m_vFrames.size()) && time_get() < Deadline; ++Budget)
 	{
 		const SFrame &Frame = m_vFrames[m_ValidationCursor];
 		const CCharacter *pChar = m_pValidationWorld->GetCharacterById(m_aWorldClientIds[m_PrimarySlot]);
 		const CCharacter *pDummy = m_pValidationWorld->GetCharacterById(m_aWorldClientIds[!m_PrimarySlot]);
-		if(!pChar || !PositionsMatch(pChar->GetPos(), Frame.m_Pos, 0.5f) ||
+		if(!pChar || !PositionsMatch(pChar->GetPos(), pChar->GetPos(), 0.0f) ||
 			(Frame.m_HasDummy && (!pDummy || !PositionsMatch(pDummy->GetPos(), Frame.m_DummyPos, 0.5f))))
 		{
-			char aMessage[256];
-			str_format(aMessage, sizeof(aMessage), "Physics diverged at frame %d. Current world state differs from the recording; playback blocked.", m_ValidationCursor);
-			PushTasWarning("TAS validation", aMessage);
-			m_pValidationWorld.reset();
-			if(m_ValidationForPlayback)
-				StopPlayback();
+			Diverged();
+			return;
+		}
+		if(m_ImportedPending)
+		{
+			// Both hypotheses stay separate for the ENTIRE track. Never choose
+			// pre/post independently each tick just because one happens to fit.
+			m_vImportBeforePositions[m_ValidationCursor] = pChar->GetPos();
+			m_ImportMatchesPre &= PositionsMatch(pChar->GetPos(), Frame.m_Pos, 0.5f);
+		}
+		else if(!PositionsMatch(pChar->GetPos(), Frame.m_Pos, 0.5f))
+		{
+			Diverged();
 			return;
 		}
 		if(!ApplyFrame(*m_pValidationWorld, Frame, false))
@@ -783,13 +876,36 @@ void CMalinkaTas::RunValidationSlice()
 			SimulationFailed();
 			return;
 		}
+		if(m_ImportedPending)
+		{
+			pChar = m_pValidationWorld->GetCharacterById(m_aWorldClientIds[m_PrimarySlot]);
+			m_ImportMatchesPost &= pChar && PositionsMatch(pChar->GetPos(), Frame.m_Pos, 0.5f);
+			if(!m_ImportMatchesPre && !m_ImportMatchesPost)
+			{
+				Diverged();
+				return;
+			}
+		}
 		++m_ValidationCursor;
 	}
 	if(m_ValidationCursor == static_cast<int>(m_vFrames.size()))
 	{
 		m_pValidationWorld.reset();
 		m_ValidationForPlayback = false;
-		PushTasWarning("TAS validation", "All recorded frame positions match this simulation. This is not a server-side guarantee.");
+		if(m_ImportedPending)
+		{
+			// Current-world simulation, NOT inferred original KRX state. Only
+			// after every raw position passed one consistent phase do we bind
+			// this converted buffer to the current map hash/Best physics.
+			for(size_t Index = 0; Index < m_vFrames.size(); ++Index)
+				m_vFrames[Index].m_Pos = m_vImportBeforePositions[Index];
+			m_Metadata = std::move(m_ImportTargetMetadata);
+			m_ImportedPending = false;
+			m_vImportBeforePositions.clear();
+			PushTasWarning("KRX import", "Imported positions match this current-world simulation. Converted to Malinka pre-input positions; Save under a new name. This is not proof of all KRX 1.32 formats or server-side equivalence.");
+		}
+		else
+			PushTasWarning("TAS validation", "All recorded frame positions match this simulation. This is not a server-side guarantee.");
 	}
 }
 
@@ -962,6 +1078,11 @@ void CMalinkaTas::PushTasWarning(const char *pTitle, const char *pMessage) const
 
 void CMalinkaTas::SaveReplay() try
 {
+	if(m_ImportedPending)
+	{
+		PushTasWarning("KRX import", "Preview-only inputs cannot be saved as a trusted Malinka replay. Validate Replay on the matching map/start first.");
+		return;
+	}
 	char aPath[IO_MAX_PATH_LENGTH];
 	if(m_vFrames.empty() || !GetReplaySavePath(aPath, sizeof(aPath), false) || !SaveReplayToPath(aPath))
 	{
@@ -988,7 +1109,7 @@ void CMalinkaTas::LoadSelectedReplay() try
 		PushTasWarning("TAS", m_LastIoError.empty() ? "No unambiguous replay selected." : m_LastIoError.c_str());
 		return;
 	}
-	PushTasWarning("TAS", m_Metadata.m_Legacy ? "Legacy Pasta path loaded for viewing only; map identity/physics are unknown, playback is blocked." : "Replay loaded; playback requires matching map/physics and start state.");
+	PushTasWarning("TAS", m_ImportedPending ? "KRX sample-schema inputs loaded for preview only. Initial world/map hash/position phase are absent. Stand at its start on the matching map and Validate Replay before Save/Playback." : m_Metadata.m_Legacy ? "Legacy Pasta path loaded for viewing only; map identity/physics are unknown, playback is blocked." : "Replay loaded; playback requires matching map/physics and start state.");
 }
 catch(const std::exception &)
 {
@@ -1006,10 +1127,17 @@ void CMalinkaTas::ValidateReplay() try
 	m_ValidationCursor = 0;
 	m_ValidationForPlayback = false;
 	std::string Error;
-	if(!Malinka::Replay::ValidateFrames(m_vFrames, Error) || !CurrentMapMatches())
+	if(!Malinka::Replay::ValidateFrames(m_vFrames, Error) ||
+		(m_ImportedPending ? (!GameClient()->Map()->IsLoaded() || m_Metadata.m_Map != GameClient()->Map()->FullName()) : !CurrentMapMatches()))
 	{
-		PushTasWarning("TAS validation", Error.empty() ? "Map identity/physics do not match (or legacy format)." : Error.c_str());
+		PushTasWarning("TAS validation", Error.empty() ? "Map name/hash/physics do not match (or unsupported legacy format)." : Error.c_str());
 		return;
+	}
+	if(m_ImportedPending)
+	{
+		m_ImportTargetMetadata = CurrentMapMetadata();
+		m_vImportBeforePositions.resize(m_vFrames.size());
+		m_ImportMatchesPre = m_ImportMatchesPost = true;
 	}
 	// Publish only a completely captured world; a failed capture leaves no
 	// empty validation world that could be mistaken for an initialized one.
@@ -1025,7 +1153,7 @@ void CMalinkaTas::ValidateReplay() try
 	else
 	{
 		m_PrimarySlot = g_Config.m_ClDummy;
-		if(!AtReplayStart())
+		if(!m_ImportedPending && !AtReplayStart())
 		{
 			PushTasWarning("TAS validation", "Stand at both replay start positions so the current world can be simulated.");
 			return;
@@ -1059,7 +1187,10 @@ void CMalinkaTas::ReportReplayTime()
 
 void CMalinkaTas::SyncNow()
 {
-	PushTasWarning("Replay vault", "Vault sync is not implemented. Two official zlib/JSON samples were measured, but a validated importer is not connected.");
+	if(GameClient()->m_MalinkaReplayVault.Busy())
+		GameClient()->m_MalinkaReplayVault.CancelSync();
+	else
+		GameClient()->m_MalinkaReplayVault.StartSync();
 }
 
 void CMalinkaTas::OnUpdate() try

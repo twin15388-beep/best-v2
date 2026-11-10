@@ -88,7 +88,6 @@ inline const SUnavailableControl *UnavailableControls(size_t &Count)
 		{&g_Config.m_MalinkaTasDrawPredictionPathColorOthers, "MalinkaTasDrawPredictionPathColorOthers", "This prediction control has no runtime consumer yet."},
 		{&g_Config.m_MalinkaTasFakeAim, "MalinkaTasFakeAim", "Replay aim transformation and equivalence validation are not implemented."},
 		{&g_Config.m_MalinkaTasFakeAimMode, "MalinkaTasFakeAimMode", "Replay aim transformation and equivalence validation are not implemented."},
-		{&g_Config.m_MalinkaTasReplayVaultAutoSync, "MalinkaTasReplayVaultAutoSync", "Replay vault synchronization is not implemented."},
 	};
 	Count = sizeof(aControls) / sizeof(aControls[0]);
 	return aControls;

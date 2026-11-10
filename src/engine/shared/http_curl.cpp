@@ -90,7 +90,7 @@ bool CHttpRequestCurl::ConfigureHandle(CURL *pHandle)
 	}
 
 	// bestclient
-	const bool AllowHttp = g_Config.m_HttpAllowInsecure || m_AllowHttp;
+	const bool AllowHttp = !m_RequireHttps && (g_Config.m_HttpAllowInsecure || m_AllowHttp);
 #if LIBCURL_VERSION_NUM >= 0x075500
 	const char *pProtocols = AllowHttp ? "https,http" : "https";
 	curl_easy_setopt(pHandle, CURLOPT_PROTOCOLS_STR, pProtocols);
@@ -141,8 +141,8 @@ bool CHttpRequestCurl::ConfigureHandle(CURL *pHandle)
 #endif
 	curl_easy_setopt(pHandle, CURLOPT_IPRESOLVE, m_IpResolve == IPRESOLVE::V4 ? CURL_IPRESOLVE_V4 : (m_IpResolve == IPRESOLVE::V6 ? CURL_IPRESOLVE_V6 : CURL_IPRESOLVE_WHATEVER));
 	// bestclient
-	curl_easy_setopt(pHandle, CURLOPT_SSL_VERIFYPEER, m_VerifyPeer ? 1L : 0L);
-	curl_easy_setopt(pHandle, CURLOPT_SSL_VERIFYHOST, m_VerifyPeer ? 2L : 0L);
+	curl_easy_setopt(pHandle, CURLOPT_SSL_VERIFYPEER, (m_RequireHttps || m_VerifyPeer) ? 1L : 0L);
+	curl_easy_setopt(pHandle, CURLOPT_SSL_VERIFYHOST, (m_RequireHttps || m_VerifyPeer) ? 2L : 0L);
 	// bestclient
 	if(g_Config.m_Bindaddr[0] != '\0')
 	{

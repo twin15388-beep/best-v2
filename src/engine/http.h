@@ -67,6 +67,9 @@ public:
 	// bestclient
 	void VerifyPeer(bool VerifyPeer) { m_VerifyPeer = VerifyPeer; }
 	void AllowHttp(bool AllowHttp) { m_AllowHttp = AllowHttp; }
+	// Fork package/vault requests must not inherit the global testing switch
+	// that permits plaintext redirects. Also keep certificate verification on.
+	void RequireHttps() { m_RequireHttps = true; }
 	// bestclient
 	// Download to memory only. Get the result via `Result*`.
 	void WriteToMemory();
@@ -159,6 +162,7 @@ protected:
 	// bestclient
 	bool m_VerifyPeer = true;
 	bool m_AllowHttp = false;
+	bool m_RequireHttps = false;
 	// bestclient
 	bool m_ValidateBeforeOverwrite = false;
 	std::optional<SHA256_DIGEST> m_ExpectedSha256 = std::nullopt;

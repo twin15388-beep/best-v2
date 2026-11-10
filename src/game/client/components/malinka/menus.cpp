@@ -1138,6 +1138,14 @@ void RenderMalinkaTas(CMenus *pMenus, CUIRect MainView)
 			pMenus->MalinkaTasLoadSelectedReplay();
 		}
 	}
+	// Explicit load is needed for an unchanged/first selection (including a
+	// one-file list): dropdown change callbacks alone cannot load index zero.
+	static CButtonContainer s_LoadSelectedReplay;
+	if(DoMalinkaButton(pMenus, Column, s_LoadSelectedReplay, "Load Selected Replay") && vReplayNameStorage[s_SelectedReplay] != "No replays found")
+	{
+		str_copy(g_Config.m_MalinkaTasReplayName, vReplayNameStorage[s_SelectedReplay].c_str(), sizeof(g_Config.m_MalinkaTasReplayName));
+		pMenus->MalinkaTasLoadSelectedReplay();
+	}
 	Column.HSplitTop(gs_MalinkaMarginSmall, nullptr, &Column);
 	static CButtonContainer s_ValidateReplay;
 	static CButtonContainer s_ReplayTime;
@@ -1149,14 +1157,24 @@ void RenderMalinkaTas(CMenus *pMenus, CUIRect MainView)
 	if(ReplayTimePressed)
 		pMenus->MalinkaTasReportReplayTime();
 	Column.HSplitTop(gs_MalinkaMarginSmall + 1.0f, nullptr, &Column);
+	CUIRect ImportInfo;
+	Column.HSplitTop(gs_MalinkaLineSize, &ImportInfo, &Column);
+	pMenus->MenuUi()->DoLabel(&ImportInfo, pMenus->MalinkaTasImportPending() ? "PREVIEW ONLY: imported KRX positions are not validated." : "KRX sample import: validate before saving a conversion.", 11.0f, TEXTALIGN_ML);
+	Column.HSplitTop(gs_MalinkaLineSize, &ImportInfo, &Column);
+	pMenus->MenuUi()->DoLabel(&ImportInfo, "Use the same map/start; save conversions outside vault/.", 11.0f, TEXTALIGN_ML);
 	FinishMalinkaSection(Column, s_ScrollState, ReplaySection);
 
 	Column.HSplitTop(gs_MalinkaSectionSpacing, nullptr, &Column);
 	const size_t VaultSection = BeginMalinkaSection(pMenus, Column, s_ScrollState, Localize("Replay Vault"));
-	MalinkaUnavailable(pMenus, Column, "Replay vault auto sync", &g_Config.m_MalinkaTasReplayVaultAutoSync);
+	const SBoolEntry VaultAutoSync[] = {{Localize("Replay vault auto sync (GitHub)"), &g_Config.m_MalinkaTasReplayVaultAutoSync}};
+	DoMalinkaCheckBoxes(pMenus, Column, VaultAutoSync, std::size(VaultAutoSync));
+	static CButtonContainer s_VaultSync;
+	if(DoMalinkaButton(pMenus, Column, s_VaultSync, pMenus->MalinkaTasVaultBusy() ? "Cancel Sync" : "Sync Now"))
+		pMenus->MalinkaTasSyncNow();
 	CUIRect VaultInfo;
 	Column.HSplitTop(gs_MalinkaLineSize, &VaultInfo, &Column);
-	pMenus->MenuUi()->DoLabel(&VaultInfo, "Sync Now: unavailable (no working vault importer yet)", 11.0f, TEXTALIGN_ML);
+	pMenus->MenuUi()->DoLabel(&VaultInfo, pMenus->MalinkaTasVaultStatus(), 10.0f, TEXTALIGN_ML);
+	pMenus->MalinkaTooltip(&s_VaultSync, &VaultInfo, pMenus->MalinkaTasVaultStatus());
 	FinishMalinkaSection(Column, s_ScrollState, VaultSection);
 
 	Column.HSplitTop(gs_MalinkaSectionSpacing, nullptr, &Column);
@@ -1289,6 +1307,21 @@ void RenderMalinkaSettings(CMenus *pMenus, CUIRect MainView)
 
 	EndMalinkaScrollColumns(MainView, s_ScrollState, LeftView, RightView);
 }
+}
+
+bool CMenus::MalinkaTasVaultBusy() const
+{
+	return GameClient()->m_MalinkaReplayVault.Busy();
+}
+
+const char *CMenus::MalinkaTasVaultStatus() const
+{
+	return GameClient()->m_MalinkaReplayVault.Status();
+}
+
+bool CMenus::MalinkaTasImportPending() const
+{
+	return GameClient()->m_MalinkaTas.ImportedReplayPending();
 }
 
 void CMenus::MalinkaTasSaveReplay()

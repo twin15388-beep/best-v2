@@ -65,6 +65,7 @@ public:
 	bool IsRecording() const { return m_Recording; }
 	bool IsPlaying() const { return m_Playing; }
 	bool IsPaused() const { return m_Paused; }
+	bool ImportedReplayPending() const { return m_ImportedPending; }
 	int NumFrames() const { return static_cast<int>(m_vFrames.size()); }
 	int PlaybackCursor() const { return m_PlayCursor; }
 	float GetStepRate() const;
@@ -73,6 +74,12 @@ public:
 private:
 	std::vector<SFrame> m_vFrames;
 	Malinka::Replay::SMetadata m_Metadata;
+	Malinka::Replay::SMetadata m_ImportTargetMetadata;
+	std::vector<vec2> m_vImportBeforePositions;
+	std::string m_ImportSourcePath; // Canonical source, never overwritten by conversion saves.
+	bool m_ImportedPending = false;
+	bool m_ImportMatchesPre = false;
+	bool m_ImportMatchesPost = false;
 	std::unique_ptr<CGameWorld> m_pInitialWorld;
 	std::unique_ptr<CGameWorld> m_pWorld;
 	std::unique_ptr<CGameWorld> m_pWorldPredicted;
@@ -111,6 +118,8 @@ private:
 
 	bool InteractionAllowed() const;
 	bool CurrentMapMatches() const;
+	bool MapMatches(const Malinka::Replay::SMetadata &Metadata) const;
+	Malinka::Replay::SMetadata CurrentMapMetadata() const;
 	void SetCurrentMapMetadata();
 	void ClearReplay(bool KillPlayer);
 	void StartRecording();

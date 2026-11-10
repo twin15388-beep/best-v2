@@ -106,6 +106,8 @@ Updater повторно проверяет archive SHA, ZIP bounds/CRC/path/typ
 
 ## Измеренная sandbox-сборка (отличается от обычной)
 
+**Историческая сборка до восстановления среды:** toolchains/build outputs ниже сейчас отсутствуют. Последний native build18 с importer/vault прошёл exit0 до zero-aim правки; текущий full build требует свежего CI либо повторного bootstrap.
+
 В ограниченной среде доступны только GitHub/npm/PyPI hosts. Стандартные Linux dev packages/rustup/crates.io недоступны. Поэтому локальная проверка использует исключённые из Git toolchains и pinned GitHub Rust source fallbacks:
 
 - GCC **12.2**, Python **3.11**, CMake **3.27.9**, Ninja **1.11.1.4**, Meson **1.5.2**;
@@ -125,3 +127,28 @@ cmake --build build/native --target game-client bestclient-updater --parallel 2 
 Configure использует `-DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS_RELEASE='-O1 -DNDEBUG'`, перечисленные выше disabled options, `-DPREFER_BUNDLED_LIBS=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`, sandbox `RUST_CARGO` wrapper и `-DCMAKE_CXX_FLAGS='-DGLEW_EGL -DGLEW_NO_GLU -I<repo>/.artifacts/toolchain/gl/include'`. Это специфический для headless sandbox workaround, не флаг нормальной MSVC сборки.
 
 Точные результат/exit codes, логи и следующие проверки — в `HANDOFF.md`; компиляция не доказывает game feature behavior.
+
+## Текущая isolated decoder проверка (после восстановления среды)
+
+Временные fixtures/harness, не новый постоянный test suite. Генерируются **настоящие protocol headers** и используется настоящий `CMalinkaTas::SFrame`; никакого угаданного input layout. `.artifacts/acquire_replay_checks.py` повторно получает pinned vault, проверяет SHA/CRC, пишет независимые expected input/position hashes и94 hostile/valid fixtures. `.artifacts/check_krx_normalized.cpp` проверяет actual decoder, transactional failures, raw-file hashes, native-format roundtrip и allocations. Эти временные файлы не включены в Git.
+
+Точные исполненные команды из корня checkout:
+
+```sh
+mkdir -p build/local/generated/src/generated build/local/check-outputs
+python3 datasrc/compile.py network_header > build/local/generated/src/generated/protocol.h
+python3 datasrc/compile.py client_content_header > build/local/generated/src/generated/client_data.h
+python3 -m datasrc.seven.compile network_header > build/local/generated/src/generated/protocol7.h
+python3 .artifacts/acquire_replay_checks.py
+gcc -std=c11 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -Isrc -c src/engine/external/json-parser/json.c \
+  -o build/local/check-outputs/krx-json.o
+g++ -std=c++20 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -Isrc -Ibuild/local/generated/src -Isrc/engine/external/zlib \
+  .artifacts/check_krx_normalized.cpp src/base/hash_libtomcrypt.cpp \
+  build/local/check-outputs/krx-json.o /lib/x86_64-linux-gnu/libz.so.1 \
+  -Wl,--wrap=malloc,--wrap=calloc -o build/local/check-outputs/check-krx-normalized
+ASAN_OPTIONS=detect_leaks=1 build/local/check-outputs/check-krx-normalized
+```
+
+Compile3/run1 **exit0**; **2366910 checks/0failures**,94 fixtures,179 vault files(151 accepted/28 rejected),1502zero-aim frames,35 C/3 C++ allocation failures. Initial compile attempts used nonexistent `hash_ctxt.c`/unneeded hash.cpp; final link above uses real SHA256 context implementation directly. `.artifacts/normalized-{compile-3,run-1}.{log,exit}`. Это parser/I/O execution, не full client build/physics/Windows runtime.

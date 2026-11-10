@@ -144,6 +144,7 @@ void CGameClient::OnConsoleInit()
 					      &m_MalinkaFent,
 					      &m_MalinkaMisc,
 					      &m_MalinkaTas,
+					      &m_MalinkaReplayVault,
 					      &m_MalinkaVisuals,
 					      &m_Controls,
 					      &m_Camera,

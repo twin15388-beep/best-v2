@@ -95,23 +95,19 @@ inline void ReadInput(std::istream &In, CNetObj_PlayerInput &Input)
 }
 
 template<typename TFrame>
-bool Read(const std::filesystem::path &Path, std::vector<TFrame> &vOut, SMetadata &MetadataOut, std::string &Error)
+bool ReadData(std::string Encoded, std::vector<TFrame> &vOut, SMetadata &MetadataOut, std::string &Error)
 {
-	std::error_code Ec;
-	const auto Size = std::filesystem::file_size(Path, Ec);
-	if(Ec || Size == 0 || Size > MAX_FILE_BYTES)
-	{
-		Error = "Replay is missing, unreadable, empty, or exceeds 64 MiB.";
-		return false;
-	}
-	std::ifstream File(Path, std::ios::binary);
+	if(Encoded.empty() || Encoded.size() > MAX_FILE_BYTES)
+		return Error = "Replay is empty or exceeds 64 MiB.", false;
+	std::istringstream File(std::move(Encoded));
+	File.imbue(std::locale::classic());
 	std::string Magic, ChecksumLine;
 	if(!std::getline(File, Magic) || Magic.size() > 32)
 		return Error = "Invalid replay header.", false;
 	SMetadata Meta;
 	Meta.m_Legacy = Magic == "PSTATAS2";
 	if(!Meta.m_Legacy && Magic != MAGIC)
-		return Error = "Unsupported format. Official KRX binary .tas files are not supported.", false;
+		return Error = "Unsupported Malinka text format. KRX sample imports use a separate validated reader.", false;
 	uint32_t ExpectedCrc = 0;
 	if(!Meta.m_Legacy)
 	{
@@ -184,7 +180,17 @@ bool Read(const std::filesystem::path &Path, std::vector<TFrame> &vOut, SMetadat
 		return false;
 	vOut = std::move(vFrames); // A failed read never mutates the caller's current replay.
 	MetadataOut = std::move(Meta);
+	Error.clear();
 	return true;
+}
+
+template<typename TFrame>
+bool Read(const std::filesystem::path &Path, std::vector<TFrame> &vOut, SMetadata &MetadataOut, std::string &Error)
+{
+	std::string Encoded;
+	if(!Files::ReadBounded(Path, MAX_FILE_BYTES, Encoded))
+		return Error = "Replay is missing, unreadable, changed during reading, or exceeds 64 MiB.", false;
+	return ReadData(std::move(Encoded), vOut, MetadataOut, Error);
 }
 
 template<typename TFrame>

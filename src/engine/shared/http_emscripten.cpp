@@ -60,7 +60,7 @@ bool CHttpRequestEmscripten::ConfigureAndRun()
 
 	// bestclient
 	if(!str_startswith(m_aUrl, "https://") &&
-		((!g_Config.m_HttpAllowInsecure && !m_AllowHttp) || !str_startswith(m_aUrl, "http://")))
+		(m_RequireHttps || (!g_Config.m_HttpAllowInsecure && !m_AllowHttp) || !str_startswith(m_aUrl, "http://")))
 	// bestclient
 	{
 		log_error("http", "unsupported protocol: %s", m_aUrl);

@@ -1025,6 +1025,9 @@ public:
 	void MalinkaTooltip(const void *pId, const CUIRect *pRect, const char *pText);
 	int DoButtonLineSize_MenuHelper(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, float ButtonLineSize, bool Fake = false, const char *pImageName = nullptr, int Corners = IGraphics::CORNER_ALL, float Rounding = 5.0f, float FontFactor = 0.0f, ColorRGBA Color = ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f)) { return DoButtonLineSize_Menu(pButtonContainer, pText, Checked, pRect, ButtonLineSize, Fake, pImageName, Corners, Rounding, FontFactor, Color); }
 	ColorHSLA DoLine_ColorPickerHelper(CButtonContainer *pResetId, float LineSize, float LabelSize, float BottomMargin, CUIRect *pMainRect, const char *pText, unsigned int *pColorValue, ColorRGBA DefaultColor, bool CheckBoxSpacing = true, int *pCheckBoxValue = nullptr, bool Alpha = false) { return DoLine_ColorPicker(pResetId, LineSize, LabelSize, BottomMargin, pMainRect, pText, pColorValue, DefaultColor, CheckBoxSpacing, pCheckBoxValue, Alpha); }
+	bool MalinkaTasImportPending() const;
+	bool MalinkaTasVaultBusy() const;
+	const char *MalinkaTasVaultStatus() const;
 	void MalinkaTasSaveReplay();
 	void MalinkaTasLoadSelectedReplay();
 	void MalinkaTasValidateReplay();

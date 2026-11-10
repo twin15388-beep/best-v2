@@ -12,6 +12,7 @@
 #include "components/malinka/fent.h"
 #include "components/malinka/misc.h"
 #include "components/malinka/tas.h"
+#include "components/malinka/replay_vault.h"
 #include "components/malinka/visuals.h"
 #include "components/malinka/panic.h"
 
@@ -312,6 +313,7 @@ public:
 	CMalinkaFent m_MalinkaFent;
 	CMalinkaMisc m_MalinkaMisc;
 	CMalinkaTas m_MalinkaTas;
+	CMalinkaReplayVault m_MalinkaReplayVault;
 	CMalinkaVisuals m_MalinkaVisuals;
 
 	CControls m_Controls;

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #if !defined(_WIN32)
 #include <fcntl.h>
@@ -105,6 +106,25 @@ inline bool NoLinks(const fs::path &Path)
 	}
 	return true;
 }
+
+// Atomic publication of a new immutable cache directory; never replaces an
+// existing destination, including one appearing after the caller's check.
+bool MoveNoReplace(const fs::path &From, const fs::path &To);
+
+enum class EDirectoryEntryKind { RegularFile, Directory, Link, Other };
+struct SDirectoryEntry
+{
+	fs::path m_Path;
+	EDirectoryEntryKind m_Kind;
+};
+// Native handle enumeration, transactional output. Unlike the inherited
+// libstdc++ directory_iterator, allocation failure propagates to our boundary
+// instead of terminating inside the library's noexcept directory constructor.
+bool ListDirectory(const fs::path &Path, size_t MaxEntries, std::vector<SDirectoryEntry> &vOut);
+// Only for privately owned staging directories. Does not traverse links and
+// never used for user replays or published snapshots. May leave work on error.
+bool RemoveTreeBounded(const fs::path &Path, size_t MaxEntries, int MaxDepth);
+
 
 inline bool ReadBounded(const fs::path &Path, size_t Limit, std::string &Out)
 {

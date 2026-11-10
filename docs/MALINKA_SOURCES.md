@@ -48,16 +48,26 @@ Dropbox сообщил ZIP **120621904** байта и content hash `d9e6b2e9d31
 
 Архивы/EXE, ссылки с Dropbox access parameters, scratch-данные и локальные toolchains в Git не включены.
 
-## Официальные replay samples: только измеренная схема
+## Community replay vault и измеренная схема
 
-Из `krxclient/krx-replays` исследованы два файла:
+Источник: <https://github.com/krxclient/krx-replays>, snapshot **`ed7bfe99968c3107d05e57c0c06c3ef3e90f3493`**, Git tree **`c8fe016b2b0f03056c36c3b86e79e5f90500bcc8`**,333 entries, non-truncated. Archive:
 
-| Sample | Размер | SHA-256 | Frames |
-|---|---:|---|---:|
-| `069` | 16967 | `9ea981d09031d6bf9f9594b1e2ce455311a2a90cdf283a26fb5c95412f06b99b` | 1895 |
-| `003` | 74719 | `335f12a54417748e14220327dce938ce7acf2630c830ca01579b72441d16d205` | 7248 |
+`https://codeload.github.com/krxclient/krx-replays/zip/ed7bfe99968c3107d05e57c0c06c3ef3e90f3493`
 
-Наблюдается LE32 length + zlib-compressed JSON, корень `info` / `replay_local`, десять input fields и `pos{x,y}`. Полный начальный physics world, ticks и dummy track в этих samples отсутствуют. Это не доказательство совместимости всех форматов Ultimate 1.32. Текущий Malinka replay format отдельный; официальный importer/vault ещё не завершён.
+Повторно скачан и проверен: **11528399 bytes**, SHA-256 **`cc5c7f41380decf5cbcacc9aab3c0dc50a80e0565e6e4dff778f99d21de0ca02`**.179 `.tas`,11492809 expanded file bytes,max member476828; ZIP CRC clean. JSON max22260071bytes/45958frames. Это текущий community snapshot, **не доказанный набор именно KRX1.32**.
+
+| Sample | Размер | SHA-256 | Frames / Git blob |
+|---|---:|---|---|
+| `069` | 16967 | `9ea981d09031d6bf9f9594b1e2ce455311a2a90cdf283a26fb5c95412f06b99b` | 1895 / `b9895f2c15e077bf9e40e5a894fb79d11db3ec35` |
+| `003` | 74719 | `335f12a54417748e14220327dce938ce7acf2630c830ca01579b72441d16d205` | 7248 / `8c75dfc1bac99232d6b59ac93f49b15d87c1041f` |
+
+Наблюдается **LE32 expanded length по file offset0** + один zlib stream/JSON, `info`,10 named input fields и `pos{x,y}`. Это file schema, не game object offsets. Полный initial physics world,map SHA,ticks/position phase отсутствуют; они не выдумываются. Roots:152 `info/replay_local`;25 с `conditions_local`;1 с conditions+both tracks;1 dummy track без conditions.
+
+Строгий C++ decoder до normalization принимал49/179;102 plain-root файла были отклонены только из-за нулевого aim,1 из-за `INT_MIN` aim,27 из-за неподдержанных roots. После **узкой явной normalization** `(0,0)→(0,-1)` actual ASan+UBSan+LSan batch принимает **151/179**, отклоняет **28**, обрабатывает1502 zero-aim frames. Independent Python hashes сверяют все10inputs/tick/position, оригиналы не меняются. Другие invalid inputs не clamp-ятся; conditions/dummy roots не игнорируются.
+
+Provenance normalization: DDNet **18.9.1**, commit **`3b4b69c13365f4efd76b619c3762b3a8306569b4`**, файл [`src/game/client/prediction/entities/character.cpp`](https://github.com/ddnet/ddnet/blob/3b4b69c13365f4efd76b619c3762b3a8306569b4/src/game/client/prediction/entities/character.cpp), `OnPredictedInput` lines514–515 и `OnDirectInput` lines537–538. Оба меняют нулевой target на `(0,-1)`, как текущая Best prediction. Это измеренное правило DDNet input canonicalization, **не установленная реализация всего закрытого KRX**.
+
+Importer оставляет записи preview-only до полной current-world physics validation; native `MALINKATAS2` — отдельный формат. Vault sync использует измеренный GitHub commits/main `Accept: application/vnd.github.sha` (40 lowercase hex), затем SHA-pinned archive, сохраняет только raw snapshots. HTTPS/CRC/hash/limits не равны авторизации или оригинальной game/server equivalence. Точные gates и проверки: [MALINKA_STATUS.md](MALINKA_STATUS.md).
 
 ## Лицензии и атрибуция
 

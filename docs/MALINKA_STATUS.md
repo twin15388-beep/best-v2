@@ -17,7 +17,7 @@
 - `controls.cpp`, `autoaled.cpp`, `laserunfreeze.cpp`, `autoedge.cpp`: реальные input consumers для basic movement/helpers, nearest-hook/balance/pixelwalk, rehook, auto Aled, laser/shotgun self-hit поиска, basic edge detection. Уровень алгоритмов отличается от официального KRX; расширенные режимы не дописаны.
 - `avoidfreeze.cpp`: basic Legit/Blatant candidates; независимые physics copies. Невозможность прогнозирования отличена от безопасного движения: **UNAVAILABLE / SAFE / DANGER**. Отказ capture/alloc не разрешает принять safe candidate. Много настроек этих режимов ещё gated.
 - `fent.cpp`: локальный planner, bounded candidate slices, finish/flowfield/path drawing, replay export. Planning и исполнение используют один captured dummy input, записываются обе дорожки. Изменение slot/participant identity останавливает текущий run. Полная KRX Fent Light/jump-render/weapon-priority/unfreeze parity отсутствует.
-- `tas.cpp`: отдельный мир recording, main/dummy input tracks, 50 TPS, sliced rewind/validation, playback input domain separation, map hash/physics checks, path/markers/events/sound, resource limits и safe saves. Это собственный `MALINKATAS2`, **не официальный KRX Ultimate format**. Отсутствуют importer/vault и replay fake-aim transformation.
+- `tas.cpp`: отдельный мир recording, main/dummy input tracks, 50 TPS, sliced rewind/validation, playback input domain separation, map hash/physics checks, path/markers/events/sound, resource limits и safe saves. Это собственный `MALINKATAS2`, **не официальный KRX Ultimate format**. Добавлен строгий importer измеренной zlib/JSON-схемы и raw vault sync; replay fake-aim transformation отсутствует. Подробные границы ниже.
 - `simulation_step.h`: общий checked direct-input → increment tick → predicted-input → world tick. Direct inputs сортируются по client ID; указатели entities переопределяются после мутаций. Отказ должен остановить/отбросить соответствующую private simulation.
 - `prediction/gameworld.*`, `prediction/entity.*`, `collision.*`: независимые config/tunings/mapbugs/PRNG/layers/door data, COW collision, detached entity clones, exception-safe partial clone cleanup, mixed ordinary/private-copy lifetime handling. Нельзя отправлять worker потоки в live map/world.
 - `misc.cpp`: настоящий parallel prediction benchmark, до 16 workers / memory bound, 15 s deadline, join/cancellation и собственные snapshots. **Сам benchmark control в игре не запускался.**
@@ -28,7 +28,7 @@
 ## Что ещё отсутствует, даже если нет отдельного gated config
 
 - Полный Grenade saver, KRX 1.32 Fent Light tiles / jump-double-jump visuals / automatic grenade-shotgun-laser priority и точная smooth-camera parity.
-- Официальный replay importer, vault fetch/sync и полное воспроизведение KRX 1.32 binary replay semantics/initial world.
+- Полная совместимость всех KRX 1.32 replay schemas, включая conditions/dummy roots и восстановление original initial world. Реализованные sample-schema importer и raw vault sync не означают эту совместимость.
 - `!help` / `!skin` command-system parity.
 - Часть movement/prediction/advanced Avoid/Fent и dummy-fly функций.
 - Malinka Discord RPC profiles/custom app ID wiring; официальные IDs не выдуманы.
@@ -37,17 +37,36 @@
 
 После KRX 1.32 появились другие функции. Pilot/Song HUD (1.36), advanced dummy modes (1.35), perfect silent/remove-useless/showall automation (1.34), F3/F4/player indicators (1.33) не считаются обязательной 1.32 parity только из-за наличия в текущей документации.
 
-## Последние проверки пакета и Windows CI
+## Импорт KRX и raw replay vault: что именно работает в коде
 
-- Native Linux build10: `game-client`, `bestclient-updater`, `package_zip` — **exit0**. Это sandbox toolchain, не Windows/runtime.
-- Generator: **50 isolated checks,0 failures,exit0**; ASan+UBSan logic после updater exception rollback fix — **9459checks,0 failures,exit0**.
-- Пакет1026files из `ed5a779` прошёл настоящий Python generator → C++ ZIP parser/verifier/installer в disposable directory, ASan+UBSan **exit0**. Проверены exception rollback, hash readback actual client, сохранение settings/replays, old-file backup и отказ при tampering. **Канал опубликованных releases и перезапуск нового client не проверены**.
-- **GitHub run `42873249161`: Windows2022/MSVC x64 и Ubuntu24.04 — оба full build/package SUCCESS** для commit `bcef908`. Artifacts включают checked ZIP + exact source archive, не опубликованный update release. Исправлены C++20 shared_ptr API и Win32 macro leak через отдельный file_safety.cpp.
-- Следующий TAS fix: loaded/initial-world validation branches, transactional capture, exception cleanup и NaN/identity guards. Native build13 **168/168 exit0**; actual TAS load/validate/playback-input methods на двух real maps под ASan+UBSan — **8961checks,0 failures,exit0**, включая selected allocation failures и neutral input до validation. Онлайн, renderer и сервер при этих checks не запускались. Это изменение **ещё требует нового MSVC CI**, не относится к предыдущему success автоматически.
+- `krx_replay_io.h`: LE32 expanded length + один zlib stream, строгие JSON keys/types/UTF-8/limits, transactional output и scoped ownership всех C-parser allocations. Никакого угадывания map hash, initial world, ticks, dummy или physics version.
+- Только `(TargetX,TargetY)=(0,0)` преобразуется в `(0,-1)`: это правило **реального DDNet 18.9.1** и текущей Best prediction. Количество кадров сообщается пользователю. Другие недопустимые inputs не clamp-ятся. Оригинал не меняется.
+- Импорт сначала **PREVIEW ONLY**. `Validate Replay` симулирует **весь** track из текущего мира, проверяя единую pre-input либо post-input гипотезу позиций с tolerance 0.5; нельзя выбирать фазу отдельно каждый tick. Только полный успех переводит буфер в Malinka pre-input positions с hash текущей map/Best physics. Это не реконструкция original KRX world и не server guarantee.
+- `Load Selected Replay` загружает и единственный/index-zero/повторно выбранный файл. Неуспешная загрузка не заменяет прежний буфер. Pending import нельзя воспроизводить или сохранить как trusted replay. Конверсия сохраняется только **под новым именем вне `vault/`**; исходный KRX file и все vault snapshots защищены от Save, включая case aliases.
+- `replay_vault.{h,cpp}`: реальный asynchronous GitHub HEAD → pinned archive → engine cache job. `Sync Now`/cancel/status, startup/off→on auto-sync (default **off**), 60 s throttle и 120 s HTTP timeout. HTTPS/TLS принудительны независимо от insecure testing config. Не читается HTTP status/result у ERROR/ABORTED.
+- `replay_vault_io.h`: CRC/path/type/resource checks, native bounded traversal, hash verification уже существующего cache, no-replace publication в `malinka/replays/vault/<sha>`. Work только в принадлежащих job `malinka/vault-cache/staging-*`; cleanup не удаляет user files/published snapshots и может оставить staging при устойчивой ошибке. ZIP ≤32 MiB, member ≤4 MiB, expanded ≤64 MiB, ≤4096 entries/1024 replays/depth6. Общие updater defaults **не уменьшены**.
+- Vault сохраняет **raw community files**; sync ничего автоматически не конвертирует/загружает/воспроизводит. Текущий community `main` не выдан за набор именно Ultimate 1.32.
 
-## Явно недоступные controls (72)
+## Последние измеренные builds/checks
 
-Это **промежуточный gating**, а не согласованное сокращение исходного запроса. Реестр: `src/game/client/components/malinka/capabilities.h`; UI показывает причину и не включает такой control. `malinka_status` печатает ограничения в F1. Не все отсутствующие возможности имеют config, поэтому 72 — не число незавершённых игровых функций и не процент готовности.
+**Ни один пункт ниже не является Windows gameplay/renderer или внешней badge-проверкой.**
+
+| Проверка | Наблюдаемый результат / границы |
+|---|---|
+| Предыдущий GitHub CI [42875704110](https://github.com/twin15388-beep/best-v2/actions/runs/42875704110), `e2fdaef4cd0952c041401d9e324dd3a914bd633c` | Windows2022/MSVC x64 и Ubuntu24.04 **SUCCESS**, full client/updater/package. **Не включает текущий importer/vault**; свежий run требуется после push. Artifacts, не published releases. |
+| Native build18 до восстановления sandbox | `game-client bestclient-updater package_zip` **exit0**, включал importer/vault и явную Load/read-only vault Save правку, **до zero-aim normalization**. Старые logs/toolchains/builds после восстановления среды отсутствуют. |
+| Текущая ASan+UBSan+LSan decoder проверка | **2 366 910 checks / 0 failures / exit0**: 94 fixtures + все179 pinned vault files, independent Python hashes всех named inputs/positions; **151 accepted / 28 rejected**,1502 normalized zero-aim frames,35 C/3 C++ allocation failures. Parsing-only. |
+| Предыдущая actual-world/TAS lifecycle проверка | **10 165 / 0 / exit0**,2 real maps,362 allocation failures. Actual load/validate/playback-input methods, pre/post imports, successful converted Save/readback, original/vault Save refusal. До новой normalization; не server/renderer. |
+| Предыдущая actual HTTP/jobs проверка | **26 / 0 / exit0**, real GitHub API/archive, cold/repeat179 cache, local replay preservation, pending069 playback block, failed HTTP, duplicate/cooldown/cancel/shutdown. Auto-sync toggle и cache-job-stage cancellation отдельно не исполнены. |
+| Предыдущая vault I/O fault проверка | **1707 / 0 / exit0**,21 ZIP fixtures,179 byte-compared files,876 allocations/346 probes/303 injected throws. Native traversal вместо terminating libstdc++ iterator; bounded cleanup retry2. |
+| Предыдущие decoder/logic/generator проверки | Decoder **18 836 / 0** (93 fixtures +2samples); pre-normalization all179 **19 146 / 0**,49 accepted/130 rejected; package/input logic **9459 / 0**; Python generator **50 / 0**, все exit0. Это исторические results, не новые reruns. |
+| Actual1026-file package из `ed5a779` | Python→C++ ZIP/verifier/installer под ASan+UBSan **exit0**: forced exception rollback, readback, settings/replays preservation, backup, tamper refusal. Для нового пакета regression ещё нужен; deployed update/restart не проверены. |
+
+Текущая среда содержит g++/Python/gh, но не старые CMake/Ninja/Rust/SDL/GL SDK/build outputs. Новая полная local native сборка не выполнена; основные Windows/Linux build commands и isolated decoder команда — в BUILD/HANDOFF. Cargo.lock SHA-256 остаётся `760288176362ad39458b4f01673df5ad8729809cd1e0178da0573ef728c6a904`.
+
+## Явно недоступные controls (71)
+
+Это **промежуточный gating**, а не согласованное сокращение исходного запроса. Реестр: `src/game/client/components/malinka/capabilities.h`; UI показывает причину и не включает такой control. `malinka_status` печатает ограничения в F1. Не все отсутствующие возможности имеют config, поэтому 71 — не число незавершённых игровых функций и не процент готовности.
 
 | Config field | Причина |
 |---|---|
@@ -122,25 +141,17 @@
 | `MalinkaTasDrawPredictionPathColorOthers` | This prediction control has no runtime consumer yet. |
 | `MalinkaTasFakeAim` | Replay aim transformation and equivalence validation are not implemented. |
 | `MalinkaTasFakeAimMode` | Replay aim transformation and equivalence validation are not implemented. |
-| `MalinkaTasReplayVaultAutoSync` | Replay vault synchronization is not implemented. |
 
-## Измеренные проверки
+## Реальное исполнение
 
-- Native GCC 12.2 Release: `game-client` и `bestclient-updater` собраны и слинкованы, full build7 **179/179, exit 0**; после последних исходников/metadata/notice fixes incremental build8 + `package_zip` **6/6, exit 0**. Окончательные команды/результаты — в HANDOFF.
-- Syntax проверка simulation-1: **30 PASS / 0 FAIL, exit 0**. Реальная сборка дополнительно компилирует связанные Best/DDNet модули.
-- ASan + UBSan pure I/O/input/package logic, повторный run3: **9448 checks / 0 failures, exit 0**. Replay format/checksum/path aliases/backups, hostile ZIPs, input counter parity/domain transitions, process-only panic latch. Это не keyboard/UI тест.
-- ASan + UBSan actual physics harness run7: **8357 checks / 0 failures, exit 0**. Настоящие `coverage.map` 50×50 и `Tutorial.map` 2210×110; 362 обработанных allocation failures; serial/parallel copies и ticks после unload оригинала. 384 ticks/map сравнивают canonical helper с отдельным Best reference ordering, включая reverse primary/dummy order. Проверены duplicate/missing IDs, absent dummy и tick-overflow refusal. Сравниваются character states, **не полные world bytes**; остальные linked client modules не полностью инструментированы.
-- Windows-target updater: Zig/Clang 19 `x86_64-windows-gnu`, updater + public-domain SHA-256 + bundled zlib слинкованы в PE32+ x64 GUI EXE, **exit 0**. Это не MSVC build, не полный Windows client и не Windows runtime test. Zig `-fsyntax-only` давал tool-level `FileNotFound`; реальная object compilation и link прошли.
-- SDK bootstrap: реальный tarball hash проверен, все SDK files извлечены в отдельную новую директорию, **exit 0**. Dependency directory не включён в Git.
-- Actual DDNet launch с SDL dummy завершился process exit 0, **но OpenGL/graphics initialization FAILED**. Это **не успешный renderer/game smoke**.
-- TSan, gameplay, network replay equivalence, UI screenshots и remote badge **не проверены**. Build marker/SHA-256 не являются signature и не доказывают сохранность всех функций.
+Actual Linux DDNet запускался ранее с isolated HOME/XDG и SDL dummy: process exit0, **graphics/OpenGL initialization FAILED**. Это не renderer smoke success. TSan, Windows11 runtime, online gameplay/dummy, panic/navigation/search и remote badge **не проверены**. Build marker и SHA-256 не являются signatures. Старые `.artifacts` harnesses/logs не пережили восстановление среды; новые decoder logs перечислены в HANDOFF.
 
 ## Кратчайшие следующие проверяемые шаги
 
-1. Завершить native incremental build после последних исходников. Получить Windows/MSVC artifact из build pipeline; не приравнивать cross-compiled updater к нему.
+1. Commit/push importer/vault/normalization в ту же рабочую ветку; дождаться свежего **Windows/MSVC + Linux** CI на точном source commit. Повторить actual-package install/rollback на полученном artifact; не приравнивать прежний CI к новой правке.
 2. На Windows 11 x64 в отдельной install/profile: запустить actual renderer, открыть `malinka` и каждый subsection, отключить/включить helpers, проверить key release и dummy slot switching.
 3. Нажать `Insert` на открытой странице, проверить settings search/старую страницу, reconnect (остаётся скрыто), полный process restart (возвращается). Убедиться, что panic не отключает функции незаявленно.
-4. На контролируемом сервере сравнить TAS main+dummy recording/rewind/save/load/playback; `/showall` включить вручную до capture. Проверить переключатели/двери/теле/tune zones и смерть participants. Нельзя считать validation позиций доказательством идентичности полной серверной физики.
+4. На контролируемом сервере сравнить TAS main+dummy recording/rewind/save/load/playback; `/showall` включить вручную до capture. Проверить переключатели/двери/теле/tune zones и смерть participants. Для импорта: Sync Now → Reload list → Load Selected Replay → preview-only → matching map/start → Validate Replay → Save с новым именем вне vault/ → readback; отрицательные случаи должны сохранять исходный buffer/source/snapshot. Нельзя считать validation позиций доказательством идентичности полной серверной физики.
 5. Подготовить два Malinka versions в разных disposable installs. Запустить checked updater, проверить сохранение config/replay/assets, bad hash/platform/path rejection, forced move failure/rollback и запуск обновлённого клиента. Не применять к единственной пользовательской установке.
 6. Для exact KRX parity: в Windows VM проверить SHA-256 исходного EXE, зафиксировать фактическую module base/SizeOfImage/path/version; записать UI/config types/defaults и input/output traces на тех же local maps; экспортировать replay каждой опции. Никакие file RVA не превращать в runtime VA без измеренной module base. Не угадывать offsets/signatures/prototypes.
 7. Для badge нужна отдельная поддержка fork внешним сервисом BestClient и наблюдение из немодифицированного клиента. Локальная подмена и строка версии не решают это требование.
