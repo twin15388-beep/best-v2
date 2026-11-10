@@ -1,0 +1,579 @@
+name: One-shot Avoid integration and Windows delivery
+
+on:
+  push:
+    branches: ["arena/733fc6a9-best-v2"]
+    paths: [".github/workflows/malinka-avoid-once.yml"]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  regression:
+    name: Actual Avoid and local console components on real maps
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: c4c450b4c2e94b831b5a82c1bace17e4e74b4110
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Install normal native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config \
+            libcurl4-openssl-dev libssl-dev libdbus-1-dev libfreetype6-dev \
+            libnotify-dev libogg-dev libopus-dev libopusfile-dev libsdl2-dev \
+            libsqlite3-dev libpng-dev libglew-dev libwavpack-dev zlib1g-dev
+      - name: Pin dependencies and build actual client objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.92.0 --profile minimal
+          rustup override set 1.92.0
+          python scripts/malinka_bootstrap.py
+          cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DPREFER_BUNDLED_LIBS=OFF \
+            -DPRECOMPILE_HEADERS=OFF -DSERVER=OFF -DTOOLS=OFF \
+            -DDOWNLOAD_GTEST=OFF -DVIDEORECORDER=OFF -DVULKAN=OFF \
+            -DDISCORD=OFF -DSTEAM=OFF
+          python scripts/malinka_ci_build.py --log build-release/compile.log -- \
+            cmake --build build-release --config Release --target game-client --parallel 2
+      - name: Disposable component and policy fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/check
+          cat > build/check/component.cpp <<'CHECK_SOURCE'
+          // Disposable integration check. Compiled with GCC -fno-access-control to wire
+          // real components without starting a renderer or modifying production headers.
+          #include <base/mem.h>
+          #include <base/str.h>
+          #include <base/time.h>
+          #include <base/secure.h>
+          #include <engine/client/client.h>
+          #include <engine/config.h>
+          #include <engine/console.h>
+          #include <engine/kernel.h>
+          #include <engine/keys.h>
+          #include <engine/shared/config.h>
+          #include <engine/shared/map.h>
+          #include <engine/storage.h>
+          #include <game/client/gameclient.h>
+          #include <game/client/prediction/entities/character.h>
+          #include <game/client/components/malinka/simulation_step.h>
+          #include <game/mapitems.h>
+          #include <algorithm>
+          #include <chrono>
+          #include <cstdlib>
+          #include <cstring>
+          #include <iostream>
+          #include <memory>
+          #include <new>
+          #include <vector>
+          
+          static long FailAfter = -1;
+          static bool AllocationFailed = false;
+          void *operator new(std::size_t Size)
+          {
+          	if(FailAfter >= 0 && FailAfter-- == 0) { AllocationFailed = true; throw std::bad_alloc(); }
+          	if(void *p = std::malloc(Size ? Size : 1)) return p;
+          	throw std::bad_alloc();
+          }
+          void *operator new[](std::size_t Size) { return ::operator new(Size); }
+          void operator delete(void *p) noexcept { std::free(p); }
+          void operator delete[](void *p) noexcept { std::free(p); }
+          void operator delete(void *p, std::size_t) noexcept { std::free(p); }
+          void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
+          static unsigned Checks = 0, Changed = 0, Faults = 0;
+          static void Check(bool Value, const char *pMessage)
+          {
+          	++Checks;
+          	if(!Value) { std::cerr << "FAIL " << pMessage << " at " << Checks << '\n'; std::exit(1); }
+          }
+          static bool Same(const CNetObj_PlayerInput &A, const CNetObj_PlayerInput &B) { return std::memcmp(&A, &B, sizeof(A)) == 0; }
+          static bool Has(const std::vector<const char *> &Values, const char *pName)
+          {
+          	return std::any_of(Values.begin(), Values.end(), [=](const char *p) { return str_comp(p, pName) == 0; });
+          }
+          int main()
+          {
+          	unsigned char RandomBytes[8]; secure_random_fill(RandomBytes, sizeof(RandomBytes));
+          	auto Storage = CreateLocalStorage();
+          	Check(Storage != nullptr, "local-only storage");
+          	auto Kernel = std::unique_ptr<IKernel>(IKernel::Create());
+          	auto Console = CreateConsole(CFGFLAG_CLIENT | CFGFLAG_SERVER);
+          	auto Config = std::unique_ptr<IConfigManager>(CreateConfigManager());
+          	Kernel->RegisterInterface<IStorage>(Storage.get(), false);
+          	Kernel->RegisterInterface<IConsole>(Console.get(), false);
+          	Kernel->RegisterInterface<IConfigManager>(Config.get(), false);
+          	Console->Init(); Config->Init();
+          	auto Client = std::make_unique<CClient>();
+          	auto Game = std::make_unique<CGameClient>();
+          	Game->m_pClient = Client.get();
+          	Game->m_pConsole = Console.get();
+          	Game->m_pConfig = &g_Config;
+          	Game->m_pStorage = Storage.get();
+          	Game->m_MalinkaAvoidFreeze.OnInterfacesInit(Game.get());
+          	Game->m_MalinkaAvoidFreeze.OnReset();
+          	Game->m_GameConsole.OnInterfacesInit(Game.get());
+          	Game->m_GameConsole.m_pConsole = Console.get();
+          	Game->m_GameConsole.m_LocalConsole.Init(&Game->m_GameConsole);
+          	Game->m_GameConsole.m_RemoteConsole.Init(&Game->m_GameConsole);
+          	Game->m_Menus.OnInterfacesInit(Game.get());
+          	Game->m_Menus.m_MenuActive = false;
+          	g_Config.m_ClPredict = 1;
+          	g_Config.m_ClDummy = 0;
+          	g_Config.m_MalinkaAvoidLegitAfkProtection = 0;
+          	g_Config.m_MalinkaAvoidBlatantAfkProtection = 0;
+          	g_Config.m_MalinkaAvoidBlatantAimbot = 0;
+          	g_Config.m_MalinkaAvoidBlatantNsif = 0;
+          	g_Config.m_MalinkaAvoidBlatantOnlyHorizontally = 0;
+          	g_Config.m_MalinkaAvoidBlatantCheckTicks = 12;
+          	g_Config.m_MalinkaAvoidBlatantKickInTicks = 12;
+          	g_Config.m_MalinkaAvoidLegitCheckTicks = 12;
+          	g_Config.m_MalinkaAvoidLegitQuality = 32;
+          	g_Config.m_MalinkaAvoidLegitTeles = 0;
+          	g_Config.m_MalinkaAvoidLegitDeath = 0;
+          	g_Config.m_MalinkaAvoidLegitUnfreeze = 0;
+          	g_Config.m_MalinkaAvoidBlatantTeles = 0;
+          	g_Config.m_MalinkaAvoidBlatantDeath = 0;
+          	g_Config.m_MalinkaAvoidBlatantUnfreeze = 0;
+          
+          	CNetObj_Character Net{};
+          	Net.m_HookedPlayer = -1;
+          	Net.m_Weapon = WEAPON_HAMMER;
+          	Net.m_Tick = 100;
+          	Game->m_Snap.m_pLocalCharacter = &Net;
+          	Game->m_Snap.m_SpecInfo.m_Active = false;
+          	Game->m_Snap.m_pGameInfoObj = nullptr;
+          	CNetObj_PlayerInput Base{};
+          	Base.m_Direction = 1;
+          	Base.m_TargetX = 333;
+          	Base.m_TargetY = -777;
+          	Base.m_Fire = 10;
+          	Base.m_NextWeapon = 8;
+          	Base.m_PrevWeapon = 4;
+          
+          	double MaxMs = 0.0;
+          	for(const char *pMapName : {"data/maps/coverage.map", "data/maps/Tutorial.map"})
+          	{
+          		CMap Map;
+          		Check(Map.Load(Storage.get(), pMapName, IStorage::TYPE_ALL), "actual map load");
+          		Game->m_Layers.Init(&Map, false, true);
+          		Game->m_Collision.Init(&Game->m_Layers);
+          		const int Width = Game->m_Collision.GetWidth(), Height = Game->m_Collision.GetHeight();
+          		Check(Width > 0 && Height > 0 && static_cast<int64_t>(Width) * Height <= CCollision::MAX_SIMULATION_TILES, "bounded map dimensions");
+          		std::vector<vec2> Starts;
+          		for(int Y = 2; Y < Height - 2 && Starts.size() < 12; ++Y)
+          			for(int X = 2; X < Width - 2 && Starts.size() < 12; ++X)
+          			{
+          				const int Index = Y * Width + X;
+          				if(Game->m_Collision.GetTileIndex(Index) != TILE_AIR || Game->m_Collision.GetFrontTileIndex(Index) != TILE_AIR)
+          					continue;
+          				bool NearFreeze = false;
+          				for(int DX = -2; DX <= 2; ++DX)
+          					NearFreeze |= Game->m_MalinkaAvoidFreeze.IsFreezeTile(Game->m_Collision.GetTileIndex(Y * Width + X + DX));
+          				if(NearFreeze) Starts.emplace_back(X * 32 + 16, Y * 32 + 16);
+          			}
+          		Check(!Starts.empty(), "measured freeze-adjacent starts");
+          		auto SetWorld = [&](vec2 Pos, int Slot, int ClientId) {
+          			Game->m_PredictedWorld.Clear();
+          			Game->m_PredictedWorld.Init(&Game->m_Collision, Game->m_aTuningList, &Game->m_MapBugs);
+          			auto &World = Game->m_PredictedWorld;
+          			World.m_GameTick = 100;
+          			World.m_LocalClientId = ClientId;
+          			World.m_WorldConfig.m_IsDDRace = true;
+          			World.m_WorldConfig.m_PredictTiles = true;
+          			World.m_WorldConfig.m_PredictDDRace = true;
+          			World.m_WorldConfig.m_PredictFreeze = 2;
+          			World.m_WorldConfig.m_PredictTeleports = true;
+          			World.m_WorldConfig.m_PredictWeapons = true;
+          			World.m_WorldConfig.m_PredictEvents = false;
+          			Net.m_X = static_cast<int>(Pos.x); Net.m_Y = static_cast<int>(Pos.y);
+          			Net.m_VelX = 8 * 256; Net.m_VelY = 0;
+          			World.NetCharAdd(ClientId, &Net, nullptr, 0, true);
+          			Game->m_aLocalIds[Slot] = ClientId;
+          			Game->m_Snap.m_LocalClientId = ClientId;
+          			g_Config.m_ClDummy = Slot;
+          			Check(World.GetCharacterById(ClientId) != nullptr, "actual character inserted");
+          		};
+          		for(vec2 Pos : Starts)
+          			for(int Slot = 0; Slot < NUM_DUMMIES; ++Slot)
+          				for(int Mode = 1; Mode <= 2; ++Mode)
+          					for(int Flags = 0; Flags < 4; ++Flags)
+          					{
+          						SetWorld(Pos, Slot, Slot ? 17 : 3);
+          						Base.m_Hook = Slot;
+          						g_Config.m_MalinkaAvoidfreeze = 1;
+          						g_Config.m_MalinkaAvoidMode = Mode;
+          						g_Config.m_MalinkaAvoidLegitDirection = g_Config.m_MalinkaAvoidBlatantDirection = g_Config.m_MalinkaAvoidBlatantCanSetDir = (Flags & 1) != 0;
+          						g_Config.m_MalinkaAvoidLegitHook = g_Config.m_MalinkaAvoidBlatantHook = (Flags & 2) != 0;
+          						auto *pCharacter = Game->m_PredictedWorld.GetCharacterById(Game->m_aLocalIds[Slot]);
+          						CNetObj_CharacterCore Before{}; pCharacter->Core()->Write(&Before);
+          						const int FreezeBefore = pCharacter->m_FreezeTime;
+          						CNetObj_PlayerInput Input = Base;
+          						const auto Start = std::chrono::steady_clock::now();
+          						Game->m_MalinkaAvoidFreeze.ApplyAvoid(Input, time_get());
+          						MaxMs = std::max(MaxMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count());
+          						CNetObj_CharacterCore After{}; pCharacter->Core()->Write(&After);
+          						Check(std::memcmp(&Before, &After, sizeof(Before)) == 0 && pCharacter->m_FreezeTime == FreezeBefore, "live character not mutated");
+          						Check(Game->m_PredictedWorld.GameTick() == 100, "live tick not advanced");
+          						Check((Flags & 1) || Input.m_Direction == Base.m_Direction, "Direction off enforced in actual component");
+          						Check((Flags & 2) || Input.m_Hook == Base.m_Hook, "Hook off enforced in actual component");
+          						Check(Input.m_TargetX == Base.m_TargetX && Input.m_TargetY == Base.m_TargetY, "aim unchanged with scan off");
+          						Check(Input.m_Fire == Base.m_Fire && Input.m_NextWeapon == Base.m_NextWeapon && Input.m_PrevWeapon == Base.m_PrevWeapon && Input.m_Jump == Base.m_Jump, "unrelated buttons/counters preserved");
+          						Check(Input.m_Direction >= -1 && Input.m_Direction <= 1 && Input.m_Hook >= 0 && Input.m_Hook <= 1, "valid selected input");
+          						if(!Same(Input, Base)) ++Changed;
+          					}
+          		SetWorld(Starts.front(), 0, 3);
+          		for(int Mode = 1; Mode <= 2; ++Mode)
+          		{
+          			g_Config.m_MalinkaAvoidMode = Mode;
+          			g_Config.m_MalinkaAvoidLegitAfkProtection = g_Config.m_MalinkaAvoidBlatantAfkProtection = 1;
+          			g_Config.m_MalinkaAvoidLegitAfkTime = g_Config.m_MalinkaAvoidBlatantAfkTime = 1;
+          			g_Config.m_MalinkaAvoidfreeze = 1;
+          			CNetObj_PlayerInput Input = Base;
+          			Game->m_MalinkaAvoidFreeze.ApplyAvoid(Input, time_get() - 2 * time_freq());
+          			Check(!g_Config.m_MalinkaAvoidfreeze && Same(Input, Base), "AFK actually disables in seconds without input mutation");
+          			g_Config.m_MalinkaAvoidLegitAfkProtection = g_Config.m_MalinkaAvoidBlatantAfkProtection = 0;
+          		}
+          		g_Config.m_MalinkaAvoidfreeze = 1;
+          		g_Config.m_MalinkaAvoidMode = 2;
+          		g_Config.m_MalinkaAvoidBlatantDirection = g_Config.m_MalinkaAvoidBlatantCanSetDir = 1;
+          		g_Config.m_MalinkaAvoidBlatantHook = 1;
+          		for(long Failure = 0; Failure < 64; ++Failure)
+          		{
+          			CNetObj_PlayerInput Input = Base;
+          			AllocationFailed = false; FailAfter = Failure;
+          			Game->m_MalinkaAvoidFreeze.ApplyAvoid(Input, time_get());
+          			FailAfter = -1;
+          			if(AllocationFailed) { ++Faults; Check(Same(Input, Base), "actual copy/selection allocation failure preserves input"); }
+          		}
+          		CNetObj_PlayerInput Input = Base;
+          		g_Config.m_ClPredict = 0;
+          		Game->m_MalinkaAvoidFreeze.ApplyAvoid(Input, time_get());
+          		Check(Same(Input, Base), "prediction disabled means no automation");
+          		g_Config.m_ClPredict = 1;
+          		Game->m_Menus.m_MenuActive = true;
+          		Game->m_MalinkaAvoidFreeze.ApplyAvoid(Input, time_get());
+          		Check(Same(Input, Base), "menu open means no automation");
+          		Game->m_Menus.m_MenuActive = false;
+          		Game->m_PredictedWorld.Clear();
+          		Game->m_Collision.Unload(); Game->m_Layers.Unload();
+          	}
+          	Check(Changed > 0, "actual dangerous scenarios produce assistance, not only no-ops");
+          	Check(Faults > 0, "actual allocation fault paths exercised");
+          
+          	// Real CGameConsole completions + real CConsole config registration/execution.
+          	auto &Local = Game->m_GameConsole.m_LocalConsole;
+          	auto &Remote = Game->m_GameConsole.m_RemoteConsole;
+          	auto Complete = [&](const char *pText, const char *pArgument = "") {
+          		Local.m_Input.Set(pText); Local.m_Input.SetCursorOffset(str_length(pText));
+          		str_copy(Local.m_aCompletionBuffer, pText); str_copy(Local.m_aCompletionBufferArgument, pArgument);
+          		Local.m_CompletionDirty = true; Local.UpdateCompletionSuggestions();
+          	};
+          	Complete("malinka_");
+          	Check(Has(Local.m_vpCommandSuggestions, "malinka_avoidfreeze"), "local Malinka completion exists before Insert");
+          	Complete("toggle malinka_", "malinka_");
+          	Check(Has(Local.m_vpArgumentSuggestions, "malinka_avoidfreeze"), "setting argument completion exists before Insert");
+          	Remote.m_vpCommandSuggestions.push_back("malinka_remote_server_command");
+          	const char *pOldHistory = "malinka_avoidfreeze 1";
+          	char *pHistory = Local.m_History.Allocate(str_length(pOldHistory) + 1); str_copy(pHistory, pOldHistory, str_length(pOldHistory) + 1);
+          	Local.m_pCommandName = "malinka_avoidfreeze"; Local.m_IsCommand = true;
+          	g_Config.m_UiSettingsPage = CMenus::SETTINGS_MALINKA;
+          	g_Config.m_MalinkaAvoidfreeze = 1;
+          	IInput::CEvent Event{}; Event.m_Key = KEY_INSERT; Event.m_Flags = IInput::FLAG_PRESS;
+          	Game->OnInput(Event);
+          	Check(Game->m_MalinkaSession.IsHidden(), "actual Insert path latches hidden");
+          	Check(g_Config.m_UiSettingsPage == CMenus::SETTINGS_GENERAL, "actual Insert redirects hidden tab");
+          	Check(g_Config.m_MalinkaAvoidfreeze == 1, "Insert does not silently disable active features");
+          	Check(!Local.m_IsCommand, "cached help hidden immediately");
+          	Check(str_comp(Local.m_History.Last(), pOldHistory) == 0, "history not deleted");
+          	Check(str_comp(Local.GetString(), "toggle malinka_") == 0, "input not deleted");
+          	Check(Remote.m_vpCommandSuggestions.size() == 1, "remote commands untouched");
+          	Complete("malinka_"); Check(Local.m_vpCommandSuggestions.empty(), "local suggestions hidden after Insert");
+          	Complete("toggle malinka_", "malinka_"); Check(Local.m_vpArgumentSuggestions.empty(), "setting arguments hidden after Insert");
+          	Complete("cl_predict"); Check(Has(Local.m_vpCommandSuggestions, "cl_predict"), "ordinary completions remain after Insert");
+          	Check(Console->GetCommandInfo("malinka_avoidfreeze", CFGFLAG_CLIENT, false) != nullptr, "hidden command remains registered");
+          	Console->ExecuteLine("malinka_avoidfreeze 0"); Check(g_Config.m_MalinkaAvoidfreeze == 0, "explicit hidden config command still executes");
+          	Console->ExecuteLine("toggle malinka_avoidfreeze 0 1"); Check(g_Config.m_MalinkaAvoidfreeze == 1, "toggle/bind-style execution still works");
+          	Event.m_Flags = IInput::FLAG_RELEASE; Game->OnInput(Event);
+          	Check(Game->m_MalinkaSession.IsHidden(), "Insert release does not restore UI");
+          	Game->m_MalinkaAvoidFreeze.OnReset();
+          	Check(Game->m_MalinkaSession.IsHidden(), "component reset does not reset process latch");
+          	std::cout << "COMPONENT_RESULT " << Checks << " checks, 0 failures, " << Changed << " assisted scenarios, " << Faults << " allocation refusals, max call ms=" << MaxMs << '\n';
+          	// The console logger is allocated by its constructor but ordinarily transferred
+          	// to the engine at renderer initialization. This fixture never starts that
+          	// subsystem; leak detection is disabled for this documented fixture ownership.
+          	return 0;
+          }
+          CHECK_SOURCE
+          cat > build/check/policy.cpp <<'CHECK_SOURCE'
+          #include <game/client/components/malinka/avoid_policy.h>
+          #include <game/client/components/malinka/panic.h>
+          #include <climits>
+          #include <iostream>
+          #include <string>
+          
+          static unsigned long long Checks = 0;
+          static void Check(bool Value, const char *Message)
+          {
+          	++Checks;
+          	if(!Value) { std::cerr << "FAIL " << Message << " at " << Checks << '\n'; std::exit(1); }
+          }
+          int main()
+          {
+          	using namespace Malinka;
+          	for(int Direction = -3; Direction <= 3; ++Direction)
+          		for(int Hook = -1; Hook <= 2; ++Hook)
+          			for(int Flags = 0; Flags < 4; ++Flags)
+          			{
+          				const auto Actions = AvoidActions(Direction, Hook, Flags & 1, Flags & 2);
+          				Check(Actions.m_Count == ((Flags & 1) ? 3 : 1) * ((Flags & 2) ? 2 : 1), "action count");
+          				for(int A = 0; A < Actions.m_Count; ++A)
+          				{
+          					Check(Actions.m_aActions[A].m_Direction >= -1 && Actions.m_aActions[A].m_Direction <= 1, "direction bounds");
+          					Check(Actions.m_aActions[A].m_Hook >= 0 && Actions.m_aActions[A].m_Hook <= 1, "hook bounds");
+          					Check((Flags & 1) || Actions.m_aActions[A].m_Direction == std::clamp(Direction, -1, 1), "direction off preserves input");
+          					Check((Flags & 2) || Actions.m_aActions[A].m_Hook == (Hook != 0), "hook off preserves input");
+          					for(int B = A + 1; B < Actions.m_Count; ++B)
+          						Check(Actions.m_aActions[A].m_Direction != Actions.m_aActions[B].m_Direction || Actions.m_aActions[A].m_Hook != Actions.m_aActions[B].m_Hook, "unique actions");
+          				}
+          			}
+          	for(int Fov = 1; Fov <= 360; ++Fov)
+          		for(int Segments = 1; Segments <= 180; ++Segments)
+          			for(int Index = 0; Index < Segments; ++Index)
+          			{
+          				const float Offset = AvoidAimOffset(Index, Segments, Fov);
+          				Check(std::isfinite(Offset), "finite aim offset");
+          				Check(std::abs(Offset) <= Fov * 0.5f + 0.0001f, "hard FOV");
+          				Check(std::abs(Offset + AvoidAimOffset(Segments - 1 - Index, Segments, Fov)) < 0.0001f, "symmetric FOV");
+          			}
+          	for(int Seconds = 1; Seconds <= 120; ++Seconds)
+          		for(int64_t Frequency : {1LL, 1000LL, 1000000000LL})
+          		{
+          			const int64_t Last = 1234567;
+          			Check(!AvoidAfkExpired(Last + Frequency * Seconds - 1, Last, Frequency, Seconds), "AFK no early disable");
+          			Check(AvoidAfkExpired(Last + Frequency * Seconds, Last, Frequency, Seconds), "AFK exact seconds");
+          			Check(!AvoidAfkExpired(Last - 1, Last, Frequency, Seconds), "clock rollback");
+          		}
+          	Check(!AvoidAfkExpired(-1, 0, 1, 1), "negative clock");
+          	Check(!AvoidAfkExpired(10, -1, 1, 1), "unset activity");
+          	Check(!AvoidAfkExpired(10, 0, 0, 1), "bad frequency");
+          	Check(!AvoidAfkExpired(INT64_MAX, 0, INT64_MAX, 120), "timer multiplication overflow avoided");
+          	for(int Danger = 0; Danger <= 61; ++Danger)
+          		for(int Kick = 1; Kick <= 60; ++Kick)
+          		{
+          			Check(AvoidShouldIntervene({EAvoidPrediction::DANGER, Danger}, Kick) == (Danger >= 1 && Danger <= Kick), "kick in boundary");
+          			Check(!AvoidShouldIntervene({EAvoidPrediction::UNAVAILABLE, Danger}, Kick), "failure not danger");
+          			Check(!AvoidShouldIntervene({EAvoidPrediction::SAFE, Danger}, Kick), "safe input unmodified");
+          		}
+          	int Rollouts = 0;
+          	for(int Ticks = 1; Ticks <= 60; ++Ticks)
+          		for(int Quality = 1; Quality <= 64; ++Quality)
+          			for(int Flags = 0; Flags < 4; ++Flags)
+          			{
+          				const auto Actions = AvoidActions(1, 1, Flags & 1, Flags & 2);
+          				const int Target = Actions.m_Count - 1;
+          				int Calls = 0;
+          				const auto R = SearchLegitAvoid(Actions, Ticks, Quality, 14, 346, 1000, 13, static_cast<uint32_t>(Ticks * 100 + Quality), {EAvoidPrediction::DANGER, 1},
+          					[&](const CAvoidSequence &Sequence, int Horizon) -> SAvoidPrediction {
+          						++Calls;
+          						Check(Horizon == Ticks, "full horizon each simulation");
+          						for(int Step = 0; Step < Horizon; ++Step)
+          							Check(Sequence[Step] >= 0 && Sequence[Step] < Actions.m_Count, "bounded tree action");
+          						return Sequence[0] == Target ? SAvoidPrediction{EAvoidPrediction::SAFE, 0} : SAvoidPrediction{EAvoidPrediction::DANGER, 1};
+          					});
+          				Rollouts += Calls;
+          				Check(R.m_Available, "available search");
+          				Check(Calls == (Actions.m_Count == 1 ? 0 : Quality), "quality actual simulation budget");
+          				Check(R.m_Simulations == Calls, "reported simulation count");
+          				if(R.m_Found)
+          					Check(R.m_FirstAction == Target, "selected safe first action");
+          				if(Quality >= Actions.m_Count && Actions.m_Count > 1)
+          					Check(R.m_Found, "all root actions explored");
+          			}
+          	const auto Actions = AvoidActions(1, 1, true, true);
+          	for(int Failure = 0; Failure < 64; ++Failure)
+          	{
+          		int Calls = 0;
+          		const auto R = SearchLegitAvoid(Actions, 60, 64, 64, 346, 1000, 13, 42, {EAvoidPrediction::DANGER, 1},
+          			[&](const CAvoidSequence &, int) { return Calls++ == Failure ? SAvoidPrediction{} : SAvoidPrediction{EAvoidPrediction::SAFE, 0}; });
+          		Check(!R.m_Available && !R.m_Found, "failure invalidates earlier safe candidates");
+          		Check(Calls == Failure + 1, "stop on failed simulation");
+          	}
+          	for(int State = 0; State < 2; ++State)
+          	{
+          		CMalinkaSession Session;
+          		if(State) Session.Panic();
+          		for(const std::string Name : {"malinka_status", "malinka_avoidfreeze", "+malinka_key", "MALINKA_TEST", "+MaLiNkA_Test"})
+          			Check(Session.IsConsoleCommandHidden(Name) == static_cast<bool>(State), "local prefix presentation filter");
+          		for(const std::string Name : {"", "malinka", "malinkaX_", "echo", "bind", "toggle", "rcon", "sv_map", "cl_predict", "other_malinka_key"})
+          			Check(!Session.IsConsoleCommandHidden(Name), "unrelated commands remain visible");
+          		Session.Panic(); Session.Panic();
+          		Check(Session.IsHidden(), "idempotent process latch");
+          	}
+          	std::cout << Checks << " checks, 0 failures, " << Rollouts << " bounded UCT rollouts\n";
+          }
+          CHECK_SOURCE
+          cat > build/check/run_component.py <<'CHECK_SOURCE'
+          import json, os, shlex, subprocess, sys
+          from pathlib import Path
+          ROOT = Path.cwd().resolve()
+          BUILD = ROOT / 'build-release'
+          CHECK = ROOT / 'build/check'
+          CHECK.mkdir(parents=True, exist_ok=True)
+          
+          def run(args, cwd=ROOT, name='command', env=None):
+              print('COMMAND', shlex.join([str(x) for x in args]), flush=True)
+              result = subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', env=env)
+              (CHECK / (name + '.log')).write_text(result.stdout)
+              (CHECK / (name + '.exit')).write_text(str(result.returncode) + '\n')
+              if result.returncode:
+                  for line in result.stdout.splitlines()[-35:]:
+                      print('::error::' + line.replace('%', '%25').replace('\r','%0D'), flush=True)
+                  raise SystemExit(result.returncode)
+              print(result.stdout[-4000:], flush=True)
+              return result.stdout
+          
+          entries = json.loads((BUILD / 'compile_commands.json').read_text())
+          def entry(suffix):
+              found = [x for x in entries if x['file'].endswith('/' + suffix)]
+              assert len(found) == 1, (suffix, len(found))
+              return found[0]
+          def args_of(e):
+              return shlex.split(e['command']) if 'command' in e else e['arguments'][:]
+          def output_of(e):
+              a = args_of(e)
+              return (Path(e['directory']) / a[a.index('-o') + 1]).resolve()
+          def compile_like(e, source, output, name, harness=False):
+              args = args_of(e)
+              args[args.index('-o') + 1] = str(output)
+              args[args.index('-c') + 1] = str(source)
+              args = [a for a in args if a not in ('-O3', '-O2', '-O0') and not a.startswith('-Werror')]
+              args += ['-O1', '-g', '-fsanitize=address,undefined', '-fno-omit-frame-pointer']
+              if harness: args += ['-fno-access-control']
+              run(args, Path(e['directory']), name)
+          
+          replacements = {}
+          for i, source in enumerate(('src/game/client/components/malinka/avoidfreeze.cpp', 'src/game/client/components/console.cpp', 'src/game/client/gameclient.cpp', 'src/game/client/components/malinka/controls.cpp')):
+              e = entry(source)
+              output = CHECK / ('instrumented-' + str(i) + '.o')
+              compile_like(e, ROOT / source, output, 'instrumented-compile-' + str(i))
+              replacements[str(output_of(e))] = str(output)
+          e = entry('src/engine/client/client.cpp')
+          renamed = CHECK / 'engine-client-renamed-main.o'
+          run(['objcopy', '--redefine-sym', 'main=MalinkaClientMain', str(output_of(e)), str(renamed)], name='rename-entry')
+          replacements[str(output_of(e))] = str(renamed)
+          compile_like(entry('src/game/client/gameclient.cpp'), CHECK / 'component.cpp', CHECK / 'component.o', 'fixture-compile', harness=True)
+          commands = subprocess.check_output(['ninja', '-t', 'commands', 'game-client'], cwd=BUILD, text=True).splitlines()
+          links = []
+          for line in commands:
+              for segment in line.split(' && '):
+                  args = shlex.split(segment)
+                  if '-o' in args and args[args.index('-o') + 1] == 'DDNet': links.append(args)
+          assert len(links) == 1, len(links)
+          args = links[0]
+          for i, arg in enumerate(args):
+              path = str((BUILD / arg).resolve())
+              if path in replacements: args[i] = replacements[path]
+          args[args.index('-o') + 1] = str(CHECK / 'component-check')
+          args += [str(CHECK / 'component.o'), '-fsanitize=address,undefined']
+          run(args, BUILD, 'fixture-link')
+          env = os.environ.copy()
+          env['ASAN_OPTIONS'] = 'detect_leaks=0:abort_on_error=1:alloc_dealloc_mismatch=1'
+          env['UBSAN_OPTIONS'] = 'halt_on_error=1:print_stacktrace=1'
+          text = run([str(CHECK / 'component-check')], name='fixture-run', env=env)
+          for line in text.splitlines():
+              if line.startswith('COMPONENT_RESULT '):
+                  print('::notice title=Avoid component result::' + line, flush=True)
+          run(['g++', '-std=c++20', '-O1', '-g', '-Wall', '-Wextra', '-Werror', '-Wpedantic', '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-Isrc', str(CHECK / 'policy.cpp'), '-o', str(CHECK / 'policy-check')], name='policy-compile')
+          env['ASAN_OPTIONS'] = 'detect_leaks=1:abort_on_error=1'
+          text = run([str(CHECK / 'policy-check')], name='policy-run', env=env)
+          print('::notice title=Avoid policy result::' + text.strip().replace('\n','; '), flush=True)
+          CHECK_SOURCE
+          python build/check/run_component.py
+      - name: Retain fixture outputs only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: avoid-component-results
+          path: |
+            build/check/*.cpp
+            build/check/*.py
+            build/check/*.log
+            build/check/*.exit
+            build-release/compile.log
+          if-no-files-found: ignore
+          retention-days: 7
+  transfer:
+    name: Transfer fresh verified Windows artifact
+    permissions:
+      contents: write
+      actions: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Download the existing successful Windows artifact on the runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh run view 42902475287 --json headSha --jq .headSha)" = c4c450b4c2e94b831b5a82c1bace17e4e74b4110
+          test "$(gh run view 42902475287 --json conclusion --jq .conclusion)" = success
+          gh run download 42902475287 --name malinka-windows-x86_64 --dir build/artifact
+      - name: Check package identity and transfer bounded chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/delivery-transfer
+          cat > build/delivery-transfer/transfer.py <<'PYTHON'
+          # One-shot transfer of an existing public CI artifact; no commit/ref contains
+          # the payload. Chunked unreferenced blob objects avoid the failed Azure URL.
+          import base64,hashlib,json,re,struct,subprocess,zipfile
+          from pathlib import Path
+          ROOT=Path('build/delivery-transfer');ROOT.mkdir(parents=True,exist_ok=True)
+          A=Path('build/artifact');P=A/'bestclient-malinka-windows-x86_64.zip'
+          EXPECTED_COMMIT='c4c450b4c2e94b831b5a82c1bace17e4e74b4110'
+          assert (A/'build-environment.txt').read_text().splitlines()[0]==EXPECTED_COMMIT
+          sidecar=(P.with_name(P.name+'.sha256')).read_text().strip().split()
+          assert len(sidecar)==2 and re.fullmatch('[0-9a-f]{64}',sidecar[0]) and sidecar[1]==P.name
+          assert 0<P.stat().st_size<=512*1024*1024
+          h=hashlib.sha256()
+          with P.open('rb') as f:
+           for b in iter(lambda:f.read(1024*1024),b''):h.update(b)
+          assert h.hexdigest()==sidecar[0]
+          with zipfile.ZipFile(P) as z:
+           infos=z.infolist();assert 0<len(infos)<=10000 and sum(i.file_size for i in infos)<=2*1024*1024*1024
+           assert all(i.file_size<=512*1024*1024 and not i.filename.startswith('/') and '..' not in i.filename.split('/') for i in infos)
+           assert z.testzip() is None
+           assert 'DDNet.exe' in z.namelist() and 'bestclient-updater.exe' in z.namelist() and 'malinka-update.manifest' in z.namelist()
+           exe=z.read('DDNet.exe');assert exe[:2]==b'MZ';pe=struct.unpack_from('<I',exe,0x3c)[0]
+           assert pe<=len(exe)-26 and exe[pe:pe+4]==b'PE\0\0' and struct.unpack_from('<H',exe,pe+4)[0]==0x8664 and struct.unpack_from('<H',exe,pe+24)[0]==0x20b
+           assert b'BestClient-Malinka:api=1;version=0.1.1;upstream=cf192e3fb8590dbe2e4f66a191aa6616beff6975' in exe
+           meta={'artifact_run':42902475287,'artifact_id':13803583397,'source_commit':EXPECTED_COMMIT,'file_name':P.name,'size_bytes':P.stat().st_size,'sha256':h.hexdigest(),'zip_entries':len(infos),'exe_size_bytes':len(exe),'exe_sha256':hashlib.sha256(exe).hexdigest(),'machine':'AMD64','chunks':[]}
+          with P.open('rb') as f:
+           while b:=f.read(24*1024*1024):
+            payload=ROOT/'blob-input.json';payload.write_text(json.dumps({'content':base64.b64encode(b).decode('ascii'),'encoding':'base64'}),encoding='ascii')
+            answer=json.loads(subprocess.check_output(['gh','api','--method','POST','repos/twin15388-beep/best-v2/git/blobs','--input',str(payload)],text=True))
+            oid=answer['sha'];assert re.fullmatch('[0-9a-f]{40}',oid) and oid==hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+            meta['chunks'].append({'index':len(meta['chunks']),'size_bytes':len(b),'sha256':hashlib.sha256(b).hexdigest(),'git_blob_sha':oid})
+            payload.unlink()
+          (ROOT/'transfer.json').write_text(json.dumps(meta,indent=2),encoding='ascii')
+          print('::notice title=Verified Windows transfer metadata::'+json.dumps(meta,separators=(',',':')),flush=True)
+          PYTHON
+          python3 build/delivery-transfer/transfer.py
+      - name: Retain transfer metadata only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-transfer-metadata
+          path: build/delivery-transfer/transfer.json
+          retention-days: 7
+          if-no-files-found: ignore
