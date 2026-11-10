@@ -37,6 +37,13 @@
 
 После KRX 1.32 появились другие функции. Pilot/Song HUD (1.36), advanced dummy modes (1.35), perfect silent/remove-useless/showall automation (1.34), F3/F4/player indicators (1.33) не считаются обязательной 1.32 parity только из-за наличия в текущей документации.
 
+## Последние проверки пакета и Windows CI
+
+- Native Linux build10: `game-client`, `bestclient-updater`, `package_zip` — **exit0**. Это sandbox toolchain, не Windows/runtime.
+- Generator: **50 isolated checks,0 failures,exit0**; ASan+UBSan logic после updater exception rollback fix — **9459checks,0 failures,exit0**.
+- Пакет1026files из `ed5a779` прошёл настоящий Python generator → C++ ZIP parser/verifier/installer в disposable directory, ASan+UBSan **exit0**. Проверены exception rollback, hash readback actual client, сохранение settings/replays, old-file backup и отказ при tampering. **Канал опубликованных releases и перезапуск нового client не проверены**.
+- GitHub run `42870157467`: Windows MSVC job **failed** с C2039 (`shared_ptr::unique` удалён в C++20). Использование заменено на `use_count()>1`; следующий run должен подтвердить исправление. Полную Windows сборку пока не объявляем успешной. CI compiler diagnostics доступны через Checks API.
+
 ## Явно недоступные controls (72)
 
 Это **промежуточный gating**, а не согласованное сокращение исходного запроса. Реестр: `src/game/client/components/malinka/capabilities.h`; UI показывает причину и не включает такой control. `malinka_status` печатает ограничения в F1. Не все отсутствующие возможности имеют config, поэтому 72 — не число незавершённых игровых функций и не процент готовности.

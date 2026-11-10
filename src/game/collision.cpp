@@ -1179,7 +1179,7 @@ void CCollision::SetCollisionAt(float x, float y, int Index)
 {
 	if(!m_pTiles || m_Width <= 0 || m_Height <= 0)
 		return;
-	if(m_pSimulationLayers && !m_pSimulationLayers.unique())
+	if(m_pSimulationLayers && m_pSimulationLayers.use_count() > 1)
 	{
 		m_pSimulationLayers = std::make_shared<SSimulationLayers>(*m_pSimulationLayers);
 		RefreshSimulationPointers();
