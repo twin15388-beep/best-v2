@@ -1,31 +1,110 @@
 # Передача задачи: BestClient + malinka
 
-Обновлено **2026-11-10 UTC**. Repo `/home/user/best-v2`, ветка **`arena/733fc6a9-best-v2`** (не переключать/переименовывать). Версия0.1.1, **полный исходный запрос не выполнен**. Исторические 0.1.0 results ниже не считать текущей delivery.
+Обновлено **2026-11-10 UTC**. Repo `/home/user/best-v2`, фиксированная ветка **`arena/733fc6a9-best-v2`**. Текущий production source **`facfc8563106d5421de5c73f861e2e5df342f6ad`**, версия **0.1.1**. Свежий Windows ZIP и соответствующий source archive **действительно проверены и доставлены**. Последующие maintenance commits меняют только docs/workflows, production diff против facfc85 пустой. **Полный исходный запрос не выполнен.**
 
-## Текущая задача после пользовательского теста: Avoid / Insert / fake
+## Активный запрос и принятый scope
 
-Последнее: «доделывай… настройки avoid не такие… fake… insert… убери krx… замаскируй tas». Clarification: **«Скрытие и вкладки и команд в консоли»**. UI-only scope: local F1 suggestions/help + Malinka tabs; execution/binds/config/history/F2 сохраняются. Process lifetime latch, reconnect не возвращает UI. Маскировка файлов/подделка авторизации не выполнялись. Не просить sources заново.
+Пользователь: «доделывай… настройки avoid не такие… fake… insert… убери krx… замаскируй tas». Уточнение пользователя: **«Скрытие и вкладки и команд в консоли»**. Последнее сообщение: «продолжай».
 
-### Текущие измерения и pending work
+- Insert — **UI-only**: вкладки Malinka + локальные F1 suggestions/setting help скрываются, execution/binds/config/history/backlog и F2 не удаляются. Latch живёт до полного перезапуска процесса, reconnect его не сбрасывает.
+- Маскировка файлов и подделка авторизации **не выполнялись**. Genuine externally visible Best badge остаётся нерешённым.
+- Не просить исходники повторно. Самостоятельная адаптация — **не original/official/full KRX 1.32**. 60 remaining gated controls не являются согласованным сокращением запроса.
+- Точный полный запрос, standing instructions и исторические данные сохранены ниже и в docs. Ответы: первая строка `[Aero]`, обращаться **бро**, русский.
 
-- **Production 3c7d5865fdb80d85ce932c6aae8f8296eb47f8fd / native CI42905828723 SUCCESS обоих jobs / watch exit0**. Windows2022/MSVC x64 job130143423383 10m28s; Linux job130143422952 9m55s. Client/updater/package passed. Artifacts: Windows13806055930/117845771bytes, Linux13805607447/116207106bytes. Guarded private tele entrance/quantized packet FOV/finite-position checks включены. **ZIP не downloaded/не delivered.**
-- **Новые production edits поверх него:** проверены pinned screenshot blobs Legit6199bec3090b470110bef5a2b97d9c78360e005d и Blatant119c7153e63f741367d874db31593775160c5daf. На Legit показаны Quality1000/Life298, старые caps64/100 их не принимали. Config/UI/helper теперь допускают1000/1000, дерево≤1001 nodes/1000rollouts/60ticks; defaults16/13 и прежний scaleLife/100 оставлены. Это independent ceilings, не recovered binary maxima/defaults. Новый full native build этих edits **пока не запущен**.
-- **Новый local helper compile0/run0**, ASan+UBSan+LSan: **29656558checks/0failures/595204rollouts**,89/100 same-seed synthetic life-weight decisions changed. `.artifacts/avoid-review/policy-{compile,run}-5.{log,exit}`, binary`build/local/check-avoid-policy-5`. Exact command в BUILD. Ранние fixture3/4 требовали global optimum от bounded UCT для каждого seed и failed; assertion исправлена на доказуемую consumption/difference property, production ради этого не менялся.
-- **Actual component run42906400444 / workflow28fb93e / job130145387380 FAILED11m34s / watch exit1**. Native game-client +4instrumentedunits +fixture compile/link succeeded, actual executable дошёл до398 checks. Test передал `time_get()-2*time_freq()` <0: Best timer process-relative; production корректно отверг invalid LastActivity. Fixture исправлен на measured IdleSince+real1100ms idle; новый run **ещё не запущен**. Insert/console tests в failed run не исполнялись. Initial42904487820 component failure был missing ExecuteLine ClientId в fixture, тоже не production compile failure.
-- **Temporary `.github/workflows/malinka-avoid-once.yml` и normal workflow временные paths-ignore/skip gate ещё существуют.** Latest tracked HEAD28fb93e62c7dc7a9273e4f393fd6663501392680; source edits/doc updates pending commit. Manual workflow_dispatch403 Resource not accessible by integration; push-trigger работает, не повторять dispatch. После результатов удалить disposable workflow и восстановить normal workflow изc4c450b (перед temporary edits), без лишнего native rebuild unchanged sources.
-- Исторический c4c450b native42902475287 SUCCESS; transfer job130138794875/run42904487820 SUCCESS, metadata `.artifacts/avoid-review/transfer-c4c450b.json`. ZIP60424052bytes/SHAad53ecdc5bed00544f3fc608d652c3ca9542c3bc00a6577dd28b81206d24e329 **не downloaded** и уже obsolete. Dropbox `/Malinka-test-0.1.1-c4c450b` iddED5V7bj3cAAAAAAAAAADQ пустой; не загружать новый source с невернойc4identity.
+## Измеренные результаты текущей 0.1.1
 
-### Entrypoints / границы
+### 1. Полная native сборка
 
-`avoid_policy.h` bounded independent UCT; `avoidfreeze.{h,cpp}` actual independent world/AFK/Check+Kick-in/assistance+tiles/FOV/cached-input. `malinka/controls.cpp`: Basic-only probe, raw activity, active-slot IDs, selected aim no longer overwritten by common output stage (later other helpers still may change it). `menus.cpp`, `config_variables_malinka.h`: controls/ranges. `capabilities.h` **60 remaining gates**, не agreed scope reduction. `panic.h`, `gameclient.cpp`, `console.{h,cpp}`: F1 presentation filtering, never delete commands/history. `misc.cpp`, build_identity0.1.1/CMake.
+**CI42908808859 / source facfc85: SUCCESS, watch exit0.**
 
-`.artifacts/avoid-review/check_component.cpp` corrected actual CClient/CGameClient/world/CMap/console/config fixture; `run_component.py` actual CMake/link reuse (4units instrumented, not whole program), component LSan off solely no-renderer console logger ownership; helper LSan on. No final component pass yet. `make_dispatch.py` stale/non-idempotent; не запускать повторно. `retrieve_final.py` сейчас hardcodes obsolete3c7d/run42905828723; **адаптировать к последнему успешному source+artifact перед использованием**, не olddelivery scripts as-is.
+| Target | Job | Длительность | Результат |
+|---|---|---|---|
+| Windows2022 / MSVC x64 | `130153717950` |10m25s|client/updater/package SUCCESS|
+| Ubuntu24.04 / Linux x64 | `130153718518` |8m43s|client/updater/package SUCCESS|
 
-Remote `fake` re-audited: `client_indicator.cpp::IsPlayerFakeVersion` + external PACKET_PEER_VERSION_STATE/browser cache, empty official authorization. No local suppression/service forgery. Genuine external badge requires Best service authorization and second unmodified client observation, не получены. No concealment rename. Original KRX algorithm/defaults1.32 not proven; NSIF only cached constant-input, TrackPoint/AutoDrag/visuals/prediction remain gated. UI/gameplay/Windows11 render/focus/physical Insert **not verified in-game**.
+Выполненные commands, каждый exit0 на обеих платформах (через `python scripts/malinka_ci_build.py --log ... -- ...`):
 
-### Следующий проверяемый шаг
+```sh
+cmake --build build-release --config Release --target game-client bestclient-updater --parallel 2
+cmake --build build-release --config Release --target package_zip --parallel 2
+```
 
-Commit production ranges/docs; normal Windows/MSVC+Linux build → push isolated workflow with exact new production SHA/updated fixtures → inspect actual run. If fixture failure, distinguish fixture from source, fix/rerun. After native success obtain correct artifact IDs; runner transfer verifies source/version/PE/SHA/CRC, retrieve bounded blobs, local actual C++ ExtractZip/Verify adapted0.1.1, Dropbox fresh exact-source folder+ZIP+SHA+share link. Remove temporary workflows/skip gate, update docs/HANDOFF with exact results, deliver fresh0.1.1 ZIP+sources and concise honest scope. **No fresh0.1.1 ZIP has been delivered.**
+Outer CI artifacts: Windows **13807725269 /117850062 bytes**, Linux **13805474638 /116204955 bytes**. Не путать outer bundle с inner ZIP ниже.
+
+### 2. Actual component и helper checks
+
+- **CI42908966581**, workflow commit **`1d1a032dd96075a621c38a4a6e63f9d92cffdd47`**, job **130154252439**, checkout строго facfc85: **SUCCESS10m16s /watch exit0 /2102 checks /0failures**.
+- Actual CClient/CGameClient/CMap/world/console/config, карты **coverage50×50 и Tutorial2210×110**, оба input slots, Legit/Blatant и Hook/Direction on/off. **41 assisted outputs**, **128 allocation refusals** с неизменённым исходным input. Проверены local character core/freeze time и live tick до/после, selected input FOV1/45/180/360, AFK после реально измеренного idle1100ms, config принимает Quality1000/Life298.
+- Synthetic Insert через настоящий `CGameClient::OnInput`: redirect из вкладки, немедленный F1 command/setting/help filter; обычный cl_predict completion, explicit/toggle execution, history/input и remote completion cache сохранены; component reset не сбрасывает latch.
+- ASan/UBSan инструментируют **4 production units**, не весь world; component LSan off только из-за renderer-owned console logger в no-renderer fixture. **Max call29.2549ms на Linux с instrumentation**, не Windows FPS proof. Physical keyboard/renderer/server не запускались.
+- **Pure policy/panic local compile0/run0 +same CI success**: **29656558 checks /0 failures /595204 rollouts**, ASan+UBSan+LSan. В89/100 same-seed synthetic cases смена life weight100→298 изменила решение; это не гарантия глобального optimum при каждом UCT seed.
+- Helper binary `build/local/check-avoid-policy-5`; logs `.artifacts/avoid-review/policy-{compile,run}-5.{log,exit}`. Component metadata `component-facfc85-{result,annotations}.json`. Exact g++ command в BUILD.
+
+### 3. Оригинальные доставленные файлы
+
+Runner transfer **CI42914015262 /c1738ff144d83c2736779da5ea8ecf4a423220c4 /job130171633080 SUCCESS47s /watch exit0** проверил native run/source/artifact identity, SHA/CRC/PE/marker и source manifest SHA. Передача через **6 bounded unreferenced Git blobs**, без binary payload commits/trees/refs/branches/tags/releases. Metadata `.artifacts/avoid-review/transfer-final{,-annotations}.json`.
+
+| Файл | Bytes | SHA-256 |
+|---|---:|---|
+| Windows ZIP |60425920|`b7d0a2349b6c79c5a87299909d14b678ae5f4150f91a1cb0e99e0bb01225b231`|
+| Companion source tar.gz |57789009|`d605a975ecbcf0e8c4ffd3b1ab4abbe6a8d7e523796d2a38c3f8d97d501e3c7a`|
+| DDNet.exe внутри ZIP |8950272|`0721b337ccf0ee0543fb14afe1110a5dd4ee13d25102ff2baf8e0cc0bbaf6752`|
+
+- Workspace **`build/local/delivery-0.1.1-facfc85`**: оригинальные ZIP/source, sidecars, `SHA256SUMS.txt`, `TEST-NOTES-0.1.1.txt`, `verified-delivery.json`. Main ZIP открыт `present_file`. EXE AMD64/PE32+, marker0.1.1,1039 ZIP entries (1038 manifest files+manifest), CRC passed. Отдельный EXE без DLL/data не выдавать.
+- Companion compressed SHA точно совпадает с `source_sha256` manifest. Все **2375 source paths** сверены с facfc85: **822 byte-identical blobs,1553 text files ONLY LF→CRLF** Windows export. Никаких иных content changes; оригинальные archives не перепакованы. Canonical LF — git checkout facfc85. Tracked Cargo.lock SHA относится к LF blob, не CRLF bytes внутри tar.
+- `retrieve_final.py` скачал и сверил все6 chunks, но завершился **exit1** на strict LF-byte assertion `.cargo/config.toml`. **Не скачивать заново/не повторять его as-is.** Последующий `verify_received.py` допустил только точное bareLF→CRLF, проверил каждый path/size/GitOID, **exit0**; logs `verify-received.{log,exit}`. Это не побайтовая идентичность всего source tar GitLF tree и не binary reproducibility proof.
+
+### 4. Actual package installation regression
+
+**Compile0/run0 /2821 checks /0failures**, ASan+UBSan+LSan, current production C++ ExtractZip/Verify/Install над этим ZIP и companion source:
+
+- **1038 files /906 installed /132 preserved package paths**; source manifest SHA, обычные updater limits.
+- Wrong platform и modified license tamper отвергнуты до мутации установленного клиента.
+- Callback exception после первого изменения → rollback и прежние file fingerprints.
+- Успешная установка/readback; config/native replay/raw vault/custom arrows/unrelated sentinels сохранены; backups сверены.
+- **Linux file operations**, не Win32 process/UAC/updater window/restart/gameplay.
+
+Binary `build/local/check-final-package`, fixture `.artifacts/avoid-review/check_final_package.cpp`, logs `final-package-{compile,run}.{log,exit}`. Fresh owned root **`build/local/ci-package-facfc85-check-1`** уже существует: не повторять на нём и не удалять user paths. Exact commands в BUILD; fixture recipe из historical53821ae, compiled с нынешними headers/0.1.1.
+
+### 5. Dropbox delivery
+
+Новая папка **`/Malinka-test-0.1.1-facfc85`**, id **`id:dED5V7bj3cAAAAAAAAAADg`**:
+
+| Файл | ID | Revision |
+|---|---|---|
+| Windows ZIP |`id:dED5V7bj3cAAAAAAAAAAEg`|`65ff399bc4aca4b309220`|
+| Source tar.gz |`id:dED5V7bj3cAAAAAAAAAAEQ`|`65ff399aae0674b309220`|
+| SHA256SUMS.txt |`id:dED5V7bj3cAAAAAAAAAAEA`|`65ff398f1f58d4b309220`|
+| TEST-NOTES-0.1.1.txt |`id:dED5V7bj3cAAAAAAAAAADw`|`65ff398ea6b594b309220`|
+
+Все4 files uploaded add/strict-conflict; metadata readback sizes и независимо рассчитанные4MiB-block Dropbox content hashes совпали. ZIP hash **`59cf4e6868ebb045466f47e89fa95b39f1cd19ab08500e717a9302599e317824`**, source hash **`cfce9805004cb6376b39eca0a11dee61644ea9383439233165732a96d4aac9db`**. Public viewer/download links созданы для ZIP и папки; **access parameters не копировать в Git**. Metadata `.artifacts/avoid-review/dropbox-delivery.json`. Существующие пользовательские файлы не заменялись.
+
+## Files / entrypoints / ограничения
+
+- `avoid_policy.h`: независимый bounded UCT. Quality≤1000,≤1001nodes,60ticks; Life298 не clamp-ится к100. Defaults16/13 и прежний Life scale/100 не менялись. Screenshot evidence: Legit blob6199bec3090b470110bef5a2b97d9c78360e005d; original1.32 maxima/defaults не установлены.
+- `avoidfreeze.{h,cpp}`: private world, AFK seconds, Check/Kick-in, action/tile/FOV constraints, revalidated cached input; private forbidden teleport entrances остаются observable, quantized aim проверяется, finite/abs<1e9 position guard.
+- `malinka/controls.cpp`: Basic-only side probe, raw activity, active-slot IDs, selected aim больше не затирается common output. **Позднейшие другие helper features ещё могут менять input**, это не runtime proof всей orchestration.
+- `malinka/menus.cpp`, `config_variables_malinka.h`: группы и ranges Quality1..1000/Life0..1000; `capabilities.h` **60 remaining gates**, exact registry/docs comparison passed.
+- `panic.h`, `gameclient.cpp`, `console.{h,cpp}`: F1 presentation-only filter, commands/history не удаляются; build_identity0.1.1/CMake/misc status.
+- Незавершённые PlayerPrediction/TrackPoint/AutoDrag/visuals остаются gated. NSIF хранит одно constant input, не полную safest sequence. Оригинальный KRX algorithm/defaults не восстановлены.
+- **fake не исправлен**: HasOfficialCode пустой, remote PACKET_PEER_VERSION_STATE/browser cache authoritative. Local flag suppression/authorization forgery не делались. Нужны legitimate Best service fork authorization и наблюдение со второго unmodified клиента.
+- KRX/TAS concealment rename не выполнялся. Published/end-to-end update channel отсутствует.
+- **not verified in-game**: Windows11 renderer/gameplay/focus/key release/physical Insert/reconnect/restart; FreezeReset friend timer/helper conflicts; swept hazards/performance; external badge.
+
+## CI cleanup и следующий проверяемый шаг
+
+- Disposable `.github/workflows/malinka-avoid-once.yml` удалён после завершения checks/transfer. Normal `.github/workflows/malinka-build.yml` восстановлен **byte-for-byte изc4c450b**, без temporary skip/paths-ignore/contents-write. Cleanup commit — docs/workflows-only `[skip ci]`; **повторная native сборка неизменённого production кода не заявляется**. Historical1d1a032/c1738ff сохраняют recipes. Нет permanent tests/heavy artifacts в Git.
+- Все watch-процессы latest native/component/transfer завершились exit0, pending CI для delivery нет. Manual workflow_dispatch403 integration permission; push-trigger работал. Не повторять dispatch и не просить credentials.
+- Следующий input — Windows11 user test этой свежей сборки в отдельной папке/профиле по TEST-NOTES: `storage.cfg` CURRENTDIR/DATADIR (папка сама по себе не изолирует `$USERDIR`), F1 до/после Insert, бинды/held keys/reconnect/full restart, Legit/Blatant constraints/AFK/FOV/tele/death/unfreeze/slots. Записать фактические ошибки/поведение; не выдавать compilation за gameplay.
+- Продолжать независимую реализацию отсутствующих Avoid consumers и остальных1.32 функций на известных Best APIs с real-world checks, не пустые toggles/guessed defaults. Для exact original parity нужны измеренные UI/default/input-output traces закрытого бинарника на Windows; recipe в STATUS/SOURCES, исходники снова не спрашивать.
+- **Не объявлять исходный полный запрос выполненным из-за успешной текущей промежуточной доставки.** External badge authorization и опубликованные updates — отдельные unresolved dependencies.
+
+## Исторические неудачи и obsolete packages
+
+- CI42904487820 fixture compile failed на ExecuteLine без ClientId; исправлен fixture, не production.
+- CI42906400444 actual component остановился на398 checks: LastActivity=`time_get()-2freq` оказался отрицательным (process-relative timer), production правильно его отверг. Fixture перешёл на measured1100ms idle; latest run полностью passed.
+- Helper fixture3/4 требовал global optimum для каждого seed от bounded UCT; исправлена assertion на доказуемую consumption/difference property. Production ради прохождения этого assertion не менялся.
+- Старые c4c450b/3c7d586 native тоже passed, но их packages не latest. c4 transfer — metadata only, download/delivery не было. Пустая Dropbox `/Malinka-test-0.1.1-c4c450b` оставлена без изменений. Старую0.1.0 доставку ниже не подменять за новую.
 
 ## Историческая доставка 0.1.0: EXE пользователю
 

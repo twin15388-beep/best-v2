@@ -227,7 +227,16 @@ add_path $DATADIR
 
 ## Avoid / Insert: проверка исправлений 0.1.1
 
-Guarded source `3c7d5865fdb80d85ce932c6aae8f8296eb47f8fd`: full ordinary [CI42905828723](https://github.com/twin15388-beep/best-v2/actions/runs/42905828723) **SUCCESS Windows/MSVC x64 + Linux, watch exit0**, включая client/updater/package. Выполненные commands: `cmake --build build-release --config Release --target game-client bestclient-updater --parallel 2` и `cmake --build build-release --config Release --target package_zip --parallel 2`. Это до расширения Quality/Life ranges; новый full build ещё ожидается.
+Текущий production source **`facfc8563106d5421de5c73f861e2e5df342f6ad`**: full ordinary [CI42908808859](https://github.com/twin15388-beep/best-v2/actions/runs/42908808859) **SUCCESS Windows2022/MSVC x64 (10m25s) + Ubuntu24.04 (8m43s), watch exit0**, включая client/updater/package и расширенные Quality/Life ranges. Выполненные commands (каждый exit0 на обеих платформах):
+
+```sh
+python scripts/malinka_ci_build.py --log build-release/compile.log -- \
+  cmake --build build-release --config Release --target game-client bestclient-updater --parallel 2
+python scripts/malinka_ci_build.py --log build-release/portable.log -- \
+  cmake --build build-release --config Release --target package_zip --parallel 2
+```
+
+Windows outer artifact13807725269/117850062bytes, Linux13805474638/116204955bytes. Предыдущиеc4c450b/3c7d586 artifacts нельзя выдавать за facfc85.
 
 Свежая isolated helper проверка расширенных ranges:
 
@@ -239,3 +248,37 @@ ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/local/check-avoi
 ```
 
 **Compile0/run0**, 29656558 checks/0 failures/595204 rollouts. Fixtures/logs ignored; постоянный test suite не добавлен. Current component fixture использует actual client objects из CMake compile_commands/Ninja link, четыре production translation units ASan/UBSan и `-fno-access-control` только для fixture wiring. Не whole-program instrumentation; LSan отключён только для no-renderer component fixture из-за обычной renderer-owned CGameConsole logger ownership, helper LSan включён. Actual Insert renderer/gameplay **not verified in-game**.
+
+
+Actual component [CI42908966581](https://github.com/twin15388-beep/best-v2/actions/runs/42908966581) **SUCCESS/exit0**, job130154252439, source checkout строго facfc85: **2102 checks/0failures**,41 assisted scenarios,128 handled allocation refusals,2actual maps. ConfigQuality1000/Life298,AFK measured idle1100ms,input-slot/limits/live-immutability,packetFOV1/45/180/360; synthetic Insert → actual handler/tab redirect/F1 filtering/normal completions/explicit+toggle execution/history preservation/reset-latch. Max29.2549ms under Linux instrumentation, не Windows performance proof. Полный normal game-client build,4instrumented compile commands,fixture compile/link/run иhelper compile/run exited0.
+
+Reproduction recipe/embedded disposable C++ and Python: `git show 1d1a032dd96075a621c38a4a6e63f9d92cffdd47:.github/workflows/malinka-avoid-once.yml`. Driver reuses actual CMake compile_commands/Ninja link, `objcopy --redefine-sym main=MalinkaClientMain` only for engine object. `-fno-access-control` только для fixture; production headers не изменяются ради теста. Run env: `ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:alloc_dealloc_mismatch=1`, `UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1`; helper LSan включён. Не full-world sanitization, не physical keyboard/renderer/server. В final branch disposable workflow удаляется; исторический commit оставляет recipe доступной без постоянного test suite.
+
+
+### Доставка и actual-package regression именно facfc85
+
+[Runner transfer42914015262](https://github.com/twin15388-beep/best-v2/actions/runs/42914015262), workflow **c1738ff144d83c2736779da5ea8ecf4a423220c4**, job130171633080 **SUCCESS47s/watch exit0**: проверены native run/source/artifact identity, source manifest SHA, ZIP CRC/PE AMD64/0.1.1 marker, затем по3 bounded unreferenced blobs на оригинальный Windows ZIP и companion tar. Binary payloads не добавлены в commits/trees/refs/releases. В sandbox получены все6chunks с GitOID/SHA256/size checks; подписанный недоступный Azure URL и отключениеTLS не использовались.
+
+| Оригинальный файл | Bytes | SHA-256 |
+|---|---:|---|
+| bestclient-malinka-windows-x86_64.zip |60425920|`b7d0a2349b6c79c5a87299909d14b678ae5f4150f91a1cb0e99e0bb01225b231`|
+| bestclient-malinka-source.tar.gz |57789009|`d605a975ecbcf0e8c4ffd3b1ab4abbe6a8d7e523796d2a38c3f8d97d501e3c7a`|
+
+Оба оригинала повторно проверены локально, ZIP CRC/PE/marker/source manifest SHA. Exact source-content comparison по2375paths:822blobs совпали побайтово,1553text files имеют **только LF→CRLF export** относительно Git blobs. Начальная strict LF-byte assertion на `.cargo/config.toml` закономерно остановила retrieval script после скачивания всех6chunks; последующая проверка допускает только **точное** преобразование каждого bareLF→CRLF, сверяет исходный GitOID/длины/каждыйpath и отвергает иные различия. Оригинальные tar/ZIP/manifest не изменены. Не называть весь tar побайтово идентичным LF Git tree. Для LF builds рекомендуется canonical git checkout facfc85; archive Cargo.lock тоже CRLF, тогда как записанный выше SHA относится к tracked LF blob. `verify-received.exit=0`, детали `.artifacts/avoid-review/verify-received.log`, script`verify_received.py`.
+
+Свежая actual C++ installer fixture из прежней disposable recipe53821ae, compiled с текущими production headers/0.1.1 marker:
+
+```sh
+g++ -std=c++20 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -Isrc -Isrc/engine/external/zlib .artifacts/avoid-review/check_final_package.cpp \
+  src/game/client/components/malinka/file_safety.cpp src/base/hash_libtomcrypt.cpp \
+  /lib/x86_64-linux-gnu/libz.so.1 -o build/local/check-final-package
+ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 build/local/check-final-package \
+  build/local/delivery-0.1.1-facfc85/bestclient-malinka-windows-x86_64.zip \
+  build/local/delivery-0.1.1-facfc85/bestclient-malinka-source.tar.gz \
+  windows-x86_64 build/local/ci-package-facfc85-check-1
+```
+
+**Compile0/run0**, **2821 checks/0failures**,1038files/906installed/132preserved. Real ZIP/manifest/hash/source SHA/default limits, wrong platform, modified license tamper refusal, progress exception after first live mutation→rollback +old-file fingerprints, successful install/readback,config/native replay/raw vault/custom arrows/other sentinel preservation и backups. Это **Linux filesystem check Windows package**, не Win32 process wait/UAC/updater window/restart/gameplay. Fresh disposable root обязателен, старый root не удалять ради rerun. Logs `.artifacts/avoid-review/final-package-{compile,run}.{log,exit}`.
+
+Main ZIP открыт в viewer. В Dropbox `/Malinka-test-0.1.1-facfc85` загружены оригинальные ZIP/source +`SHA256SUMS.txt`/`TEST-NOTES-0.1.1.txt`; size и4MiB-block Dropbox content hash всех4files совпали при readback. Public links выданы в чате, access parameters не коммитятся. Companion source включает snapshot именно facfc85, в том числе тогдашний disposable workflow; final branch удаляет temporary workflow/contents-write и восстанавливает обычный workflow изc4c450b byte-for-byte. После docs/workflow-only cleanup повторная native сборка не нужна и не заявляется: `git diff facfc85 -- src CMakeLists.txt Cargo.lock` пустой.
