@@ -1,0 +1,100 @@
+name: Malinka native builds
+
+on:
+  push:
+    branches: [main, "arena/**"]
+    paths-ignore: ["docs/**", "README.md", "HANDOFF.md"]
+  pull_request:
+    paths-ignore: ["docs/**", "README.md", "HANDOFF.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: malinka-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: windows-x86_64
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Install Linux development libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config \
+            libcurl4-openssl-dev libssl-dev libdbus-1-dev libfreetype6-dev \
+            libnotify-dev libogg-dev libopus-dev libopusfile-dev libsdl2-dev \
+            libsqlite3-dev libpng-dev libglew-dev libwavpack-dev zlib1g-dev
+      - name: Pin Rust and bootstrap checked SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.92.0 --profile minimal
+          rustup override set 1.92.0
+          python scripts/malinka_bootstrap.py
+          python -m py_compile scripts/malinka_bootstrap.py scripts/malinka_package.py
+      - name: Configure C++20 client and checked updater
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(-S . -B build-release -DPRECOMPILE_HEADERS=OFF -DSERVER=OFF
+                -DTOOLS=OFF -DDOWNLOAD_GTEST=OFF -DVIDEORECORDER=OFF -DVULKAN=OFF
+                -DDISCORD=OFF -DSTEAM=OFF -DCMAKE_BUILD_TYPE=Release)
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            args+=(-A x64 -DPREFER_BUNDLED_LIBS=ON)
+          else
+            args+=(-G Ninja -DPREFER_BUNDLED_LIBS=OFF)
+          fi
+          cmake "${args[@]}"
+      - name: Build and create portable staging tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build-release --config Release --target game-client bestclient-updater --parallel 2
+          cmake --build build-release --config Release --target package_zip --parallel 2
+      - name: Package checked fork artifact and exact sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/artifacts
+          git diff --exit-code -- Cargo.lock
+          git archive --format=tar.gz --prefix=bestclient-malinka-source/ \
+            -o build/artifacts/bestclient-malinka-source.tar.gz HEAD
+          portable=(build-release/pack_*_zip/*)
+          test "${#portable[@]}" -eq 1
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          python scripts/malinka_package.py --stage "${portable[0]}" \
+            --source build/artifacts/bestclient-malinka-source.tar.gz \
+            --platform "${{ matrix.platform }}" \
+            --output "build/artifacts/bestclient-malinka-${{ matrix.platform }}.zip"
+          {
+            git rev-parse HEAD
+            cmake --version
+            python --version
+            rustc --version --verbose
+            cargo --version
+          } > build/artifacts/build-environment.txt
+          cp build-release/CMakeCache.txt build/artifacts/CMakeCache.txt
+      - name: Upload experimental build (not a published update release)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: malinka-${{ matrix.platform }}
+          path: build/artifacts/
+          retention-days: 14
+          if-no-files-found: error
