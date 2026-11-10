@@ -20,9 +20,6 @@
 #include <string>
 #include <vector>
 
-#if defined(_WIN32)
-#include <windows.h>
-#endif
 
 namespace Malinka::Package
 {

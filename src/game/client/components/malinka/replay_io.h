@@ -19,9 +19,6 @@
 
 #include <zlib.h>
 
-#if defined(_WIN32)
-#include <windows.h>
-#endif
 
 namespace Malinka::Replay
 {

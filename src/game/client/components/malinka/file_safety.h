@@ -8,9 +8,7 @@
 #include <fstream>
 #include <string>
 
-#if defined(_WIN32)
-#include <windows.h>
-#else
+#if !defined(_WIN32)
 #include <fcntl.h>
 #include <unistd.h>
 #endif
@@ -24,6 +22,14 @@ inline std::string Utf8(const fs::path &Path)
 	const auto Text = Path.generic_u8string();
 	return std::string(Text.begin(), Text.end());
 }
+
+#if defined(_WIN32)
+// Native handles live in file_safety.cpp: windows.h must not leak IGNORE /
+// ERROR macros into game/menu headers included after replay helpers.
+bool NoReparsePoint(const fs::path &Path);
+bool WriteExclusive(const fs::path &Path, const std::string &Data);
+bool AtomicReplace(const fs::path &From, const fs::path &To);
+#endif
 
 // One unambiguous relative name on BOTH supported desktop platforms. In
 // particular, do not let Windows collapse CON, trailing dots/spaces, or colons.
@@ -93,8 +99,7 @@ inline bool NoLinks(const fs::path &Path)
 		if(fs::is_symlink(Status))
 			return false;
 #if defined(_WIN32)
-		const DWORD Attributes = GetFileAttributesW(Current.c_str());
-		if(Attributes != INVALID_FILE_ATTRIBUTES && (Attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+		if(!NoReparsePoint(Current))
 			return false;
 #endif
 	}
@@ -120,35 +125,13 @@ inline bool ReadBounded(const fs::path &Path, size_t Limit, std::string &Out)
 	return true;
 }
 
+#if !defined(_WIN32)
 // CREATE_NEW / O_EXCL prevents a stale temporary file, symlink, or hardlink
 // from being opened for truncation. Flush the complete payload before rename.
 inline bool WriteExclusive(const fs::path &Path, const std::string &Data)
 {
 	if(!NoLinks(Path))
 		return false;
-#if defined(_WIN32)
-	HANDLE File = CreateFileW(Path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-	if(File == INVALID_HANDLE_VALUE)
-		return false;
-	bool Ok = true;
-	size_t Offset = 0;
-	while(Offset < Data.size())
-	{
-		const DWORD Wanted = static_cast<DWORD>(std::min<size_t>(Data.size() - Offset, 1048576));
-		DWORD Written = 0;
-		if(!WriteFile(File, Data.data() + Offset, Wanted, &Written, nullptr) || Written == 0)
-		{
-			Ok = false;
-			break;
-		}
-		Offset += Written;
-	}
-	Ok = FlushFileBuffers(File) && Ok;
-	Ok = CloseHandle(File) && Ok;
-	if(!Ok)
-		DeleteFileW(Path.c_str());
-	return Ok;
-#else
 	const int File = open(Path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
 	if(File < 0)
 		return false;
@@ -171,19 +154,15 @@ inline bool WriteExclusive(const fs::path &Path, const std::string &Data)
 	if(!Ok)
 		unlink(Path.c_str());
 	return Ok;
-#endif
 }
 
 inline bool AtomicReplace(const fs::path &From, const fs::path &To)
 {
-#if defined(_WIN32)
-	return MoveFileExW(From.c_str(), To.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
-#else
 	std::error_code Ec;
 	fs::rename(From, To, Ec);
 	return !Ec;
-#endif
 }
+#endif
 }
 
 #endif

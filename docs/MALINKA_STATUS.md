@@ -42,7 +42,7 @@
 - Native Linux build10: `game-client`, `bestclient-updater`, `package_zip` — **exit0**. Это sandbox toolchain, не Windows/runtime.
 - Generator: **50 isolated checks,0 failures,exit0**; ASan+UBSan logic после updater exception rollback fix — **9459checks,0 failures,exit0**.
 - Пакет1026files из `ed5a779` прошёл настоящий Python generator → C++ ZIP parser/verifier/installer в disposable directory, ASan+UBSan **exit0**. Проверены exception rollback, hash readback actual client, сохранение settings/replays, old-file backup и отказ при tampering. **Канал опубликованных releases и перезапуск нового client не проверены**.
-- GitHub run `42870157467`: Windows MSVC job **failed** с C2039 (`shared_ptr::unique` удалён в C++20). Использование заменено на `use_count()>1`; следующий run должен подтвердить исправление. Полную Windows сборку пока не объявляем успешной. CI compiler diagnostics доступны через Checks API.
+- GitHub run `42871289100`: **Linux full build/package/source artifacts success**. Windows MSVC прошёл прежний C2039, но **failed** на Win32 `IGNORE` macro из `windows.h`, протёкшем в menu enum. Win32 I/O перенесён в отдельный `file_safety.cpp`; native build12 и Windows updater/header-order cross-object checks **exit0**. Следующий MSVC run должен проверить исправление; полного Windows success пока нет. CI compiler diagnostics доступны через Checks API.
 
 ## Явно недоступные controls (72)
 

@@ -3131,6 +3131,7 @@ if(CLIENT)
     components/malinka/controls.cpp
     components/malinka/fent.cpp
     components/malinka/fent.h
+    components/malinka/file_safety.cpp
     components/malinka/file_safety.h
     components/malinka/input_helpers.h
     components/malinka/laserunfreeze.cpp
@@ -3684,7 +3685,7 @@ if(CLIENT)
     list(APPEND TARGETS_LINK bestclient-updater)
   endif()
   if(TARGET bestclient-updater)
-    target_sources(bestclient-updater PRIVATE src/base/hash_libtomcrypt.cpp src/base/hash_openssl.cpp ${ZLIB_DEP})
+    target_sources(bestclient-updater PRIVATE src/base/hash_libtomcrypt.cpp src/base/hash_openssl.cpp src/game/client/components/malinka/file_safety.cpp ${ZLIB_DEP})
     target_include_directories(bestclient-updater PRIVATE src ${ZLIB_INCLUDE_DIRS})
     target_link_libraries(bestclient-updater ${ZLIB_LIBRARIES})
     if(CRYPTO_FOUND)
