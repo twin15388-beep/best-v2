@@ -12,6 +12,8 @@
 
 Официальные BestClient EXE updates не должны заменять этот fork: используется отдельный checked Malinka channel. Пакеты/rollback реализованы, но опубликованный и end-to-end проверенный update service пока отсутствует. Нормальный remote BestClient badge требует авторизации внешним сервисом; локальная подмена `fake` не применяется и не выдаётся за решение.
 
+Добавлены strict KRX sample-schema importer и raw replay vault sync. Импорт остаётся preview-only до полной проверки current-world physics; конверсия сохраняется под новым именем вне `vault/`, исходные файлы не заменяются. Это не поддержка всех KRX1.32 replay formats.
+
 В F1 команда `malinka_status` перечисляет недоступные controls. Их gating — промежуточная мера, а не замена требования «все функции». Успешные сборки и isolated checks **не означают проверку gameplay**.
 
 ## Быстрый build

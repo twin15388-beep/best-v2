@@ -106,7 +106,7 @@ Updater повторно проверяет archive SHA, ZIP bounds/CRC/path/typ
 
 ## Измеренная sandbox-сборка (отличается от обычной)
 
-**Историческая сборка до восстановления среды:** toolchains/build outputs ниже сейчас отсутствуют. Последний native build18 с importer/vault прошёл exit0 до zero-aim правки; текущий full build требует свежего CI либо повторного bootstrap.
+**Историческая сборка до восстановления среды:** toolchains/build outputs ниже сейчас отсутствуют. Последний local native build18 с importer/vault прошёл exit0 до zero-aim правки; **текущий source уже прошёл fresh Windows/MSVC+Linux CI** ниже, local rebuild потребует повторного bootstrap.
 
 В ограниченной среде доступны только GitHub/npm/PyPI hosts. Стандартные Linux dev packages/rustup/crates.io недоступны. Поэтому локальная проверка использует исключённые из Git toolchains и pinned GitHub Rust source fallbacks:
 
@@ -152,3 +152,59 @@ ASAN_OPTIONS=detect_leaks=1 build/local/check-outputs/check-krx-normalized
 ```
 
 Compile3/run1 **exit0**; **2366910 checks/0failures**,94 fixtures,179 vault files(151 accepted/28 rejected),1502zero-aim frames,35 C/3 C++ allocation failures. Initial compile attempts used nonexistent `hash_ctxt.c`/unneeded hash.cpp; final link above uses real SHA256 context implementation directly. `.artifacts/normalized-{compile-3,run-1}.{log,exit}`. Это parser/I/O execution, не full client build/physics/Windows runtime.
+
+## Свежие vault/input checks и actual-package regression
+
+Проверено в текущем sandbox (temporary harnesses, не постоянный test suite):
+
+```sh
+python3 .artifacts/acquire_vault_checks.py
+g++ -std=c++20 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -Isrc -Isrc/engine/external/zlib .artifacts/check_vault_restored.cpp \
+  src/game/client/components/malinka/file_safety.cpp src/base/hash_libtomcrypt.cpp \
+  /lib/x86_64-linux-gnu/libz.so.1 -o build/local/check-outputs/check-vault-restored
+ASAN_OPTIONS=detect_leaks=1 build/local/check-outputs/check-vault-restored build/local/vault-restored-run-1
+g++ -std=c++20 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -Isrc -Ibuild/local/generated/src -Isrc/engine/external/zlib \
+  .artifacts/check_input_replay_restored.cpp /lib/x86_64-linux-gnu/libz.so.1 \
+  -o build/local/check-outputs/check-input-replay-restored
+ASAN_OPTIONS=detect_leaks=1 build/local/check-outputs/check-input-replay-restored build/local/input-replay-restored-run-1
+```
+
+Compile/run **exit0**. Vault **6567/0**,32 ZIP fixtures(29invalid/3valid),179byte compares,8 I/O checkpoint cancellations,716allocation positions/691throws. Input/replay **107206/0**,8192 streams,324aim cases,backups/checksum/latch. Для повторного запуска необходимы **новые** disposable roots; нельзя удалять пользовательские каталоги. Logs `.artifacts/{vault-restored,input-replay-restored}-{compile-1,run-1}.{log,exit}`.
+
+Full source **`2d00f1f40fb150656c8e916a758b544071619dfd`** действительно собран и упакован в [CI42885117777](https://github.com/twin15388-beep/best-v2/actions/runs/42885117777): Windows2022/MSVC и Ubuntu24.04, обе SUCCESS, normal Rust1.92.0 stable/locked Cargo. Точные configure commands выше/в workflow; выполненные build commands:
+
+```sh
+python scripts/malinka_ci_build.py --log build-release/compile.log -- \
+  cmake --build build-release --config Release --target game-client bestclient-updater --parallel 2
+python scripts/malinka_ci_build.py --log build-release/portable.log -- \
+  cmake --build build-release --config Release --target package_zip --parallel 2
+```
+
+Обе команды **exit0** на обеих платформах; не Windows gameplay. Артефакты: `malinka-windows-x86_64`13795797827/117824429bytes; `malinka-linux-x86_64`13796002799/116176507bytes. Скачать их из sandbox через `gh run download` не удалось: Actions redirect уходит на недоступный blob-host. Поэтому выполнен **одноразовый remote integration check**, а не пропущена проверка/не подменён binary fixture.
+
+[CI42887324042](https://github.com/twin15388-beep/best-v2/actions/runs/42887324042), workflow source commit53821ae52e70063bdca855f71a2828861534a13a: загрузка **реальных** artifacts42885117777, проверка build-environment source commit и `git diff` production sources/CMake/lock относительно2d00f1f, компиляция temporary actual C++ installer harness с:
+
+```sh
+g++ -std=c++20 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -Isrc -Isrc/engine/external/zlib build/check/package.cpp \
+  src/game/client/components/malinka/file_safety.cpp src/base/hash_libtomcrypt.cpp \
+  -lz -o build/check/package-check
+ASAN_OPTIONS=detect_leaks=1 build/check/package-check \
+  build/artifact/bestclient-malinka-<platform>.zip \
+  build/artifact/bestclient-malinka-source.tar.gz <platform> build/check/disposable-install
+```
+
+Compile/run **exit0** в обоих jobs. Linux package1026files,894installed/132preserved-package-paths: **2785checks/0failures**. Windows package1038files,906installed/132preserved: **2821/0**. ZIP/SHA/manifest/default limits/source companion SHA, real install+readback, injected progress exception→rollback, backup, custom config/replays/vault/arrows preservation, wrong-platform/tamper refusal. **Windows ZIP проверялся на Linux файловой системе**, не под Wine/Win32; GUI/process wait/restart не запускались.
+
+Точная временная recipe/harness доступна в `git show 53821ae52e70063bdca855f71a2828861534a13a:.github/workflows/malinka-package-regression-once.yml` и локально `.artifacts/check_ci_package.cpp`. Workflow **удалён после исполнения**; постоянный test suite/новые зависимости не добавлены. Временная YAML skip condition сначала имела quoting error (run42887321410/no compile jobs); исправлена в9910aa9, затем обычный workflow полностью восстановлен. Production sources не менялись.
+
+| Platform | Checked ZIP SHA-256 | Companion source SHA-256 |
+|---|---|---|
+| linux-x86_64 | `3255c75080142bc7bcbb9a86510ce9c5b3b9b0394f533f9599168258221bc644` | `e56cb5036a96ddb149db1319aacea04ff96cc8e95a62f3629af9598a578859ce` |
+| windows-x86_64 | `e1b559c0ad4c59c319dab1777abf04f9271a8f1ddb251d8435103fc4c1b81082` | `594524b556352694ccc3e4df261fefc644c06637a788b1ae3635a37df7e0f3f7` |
+
+Каждый companion source hash совпал с manifest своего artifact; bytewise equality архивов между платформами не заявляется. Это **не published update release**, не end-to-end deployment и не proof о сохранении ещё нереализованных функций.
+
+После удаления одноразового fixture обычный build workflow повторно выполнен: [CI42887818609](https://github.com/twin15388-beep/best-v2/actions/runs/42887818609), source/workflow **`0a0eeed0b463ade41801f2e76c0aaca5e1f338e9`**, **Windows/MSVC+Linux SUCCESS/exit0**,client/updater/package. Production sources/CMake/lock/normal workflow идентичны2d00f1f. Последние artifactsWindows13796858394/117825375bytes,Linux13797033179/116182078bytes,не downloaded locally/not releases. **Installer regression и ZIP/source hashes таблицы относятся к artifact2d00f1f**, не автоматически к новым архивам0a0eeed; binary reproducibility/restart не заявляются. Последующее сохранение документации не меняет проверенный production code.
