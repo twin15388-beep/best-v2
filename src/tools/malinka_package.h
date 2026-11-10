@@ -217,11 +217,18 @@ inline bool Verify(const fs::path &Root, const std::string &Platform, const std:
 
 // Move, never overwrite a live file in place. A failed rename leaves the source
 // intact. All paths are under one install volume, including stage and rollback.
-inline bool Move(const fs::path &From, const fs::path &To)
+inline bool Move(const fs::path &From, const fs::path &To) noexcept
 {
-	std::error_code Ec;
-	fs::rename(From, To, Ec);
-	return !Ec;
+	try
+	{
+		std::error_code Ec;
+		fs::rename(From, To, Ec);
+		return !Ec;
+	}
+	catch(...)
+	{
+		return false;
+	}
 }
 
 inline bool Install(const fs::path &Root, const fs::path &InstallDir, const fs::path &Executable,
@@ -246,6 +253,9 @@ inline bool Install(const fs::path &Root, const fs::path &InstallDir, const fs::
 	struct SInstallFile
 	{
 		fs::path m_Relative;
+		fs::path m_Destination;
+		fs::path m_Staged;
+		fs::path m_Backup;
 		bool m_HadOld = false;
 		bool m_OldMoved = false;
 		bool m_NewMoved = false;
@@ -272,7 +282,7 @@ inline bool Install(const fs::path &Root, const fs::path &InstallDir, const fs::
 		uint64_t Size = 0;
 		if(!HashFile(Stage / Relative, Hash, Size) || Hash != File.m_Sha256 || Size != File.m_Size)
 			return Error = "Staged file verification failed; existing client was not changed.", false;
-		vInstall.push_back({Relative, Exists});
+		vInstall.push_back({Relative, Destination, Stage / Relative, Backup / Relative, Exists});
 	}
 	// Create ALL rollback directories and a readable journal before the first mutation.
 	for(const auto &File : vInstall)
@@ -293,52 +303,76 @@ inline bool Install(const fs::path &Root, const fs::path &InstallDir, const fs::
 		return Error = "Cannot write rollback journal; update cancelled.", false;
 	bool Success = true;
 	size_t Done = 0;
-	for(auto &File : vInstall)
+	// Precompute all path allocations BEFORE mutation. An allocation, path
+	// check, or progress callback exception must take the same rollback path as
+	// a failed rename, not escape to the worker with a half-installed client.
+	try
 	{
-		const auto Destination = InstallDir / File.m_Relative;
-		if(!NoLinks(Destination))
+		for(auto &File : vInstall)
 		{
-			Success = false;
-			break;
-		}
-		if(File.m_HadOld)
-		{
-			File.m_OldMoved = Move(Destination, Backup / File.m_Relative);
-			if(!File.m_OldMoved)
+			const bool ExistsNow = fs::exists(File.m_Destination, Ec);
+			if(Ec || ExistsNow != File.m_HadOld || !NoLinks(File.m_Destination) ||
+				(ExistsNow && !fs::is_regular_file(File.m_Destination, Ec)) || Ec)
 			{
 				Success = false;
 				break;
 			}
+			if(File.m_HadOld)
+			{
+				File.m_OldMoved = Move(File.m_Destination, File.m_Backup);
+				if(!File.m_OldMoved)
+				{
+					Success = false;
+					break;
+				}
+			}
+			File.m_NewMoved = Move(File.m_Staged, File.m_Destination);
+			if(!File.m_NewMoved)
+			{
+				Success = false;
+				break;
+			}
+			if(Progress)
+				Progress(static_cast<int>(++Done * 100 / vInstall.size()));
 		}
-		File.m_NewMoved = Move(Stage / File.m_Relative, Destination);
-		if(!File.m_NewMoved)
-		{
-			Success = false;
-			break;
-		}
-		if(Progress)
-			Progress(static_cast<int>(++Done * 100 / vInstall.size()));
+	}
+	catch(...)
+	{
+		Success = false;
 	}
 	if(!Success)
 	{
 		bool Restored = true;
 		for(auto It = vInstall.rbegin(); It != vInstall.rend(); ++It)
 		{
-			const auto Destination = InstallDir / It->m_Relative;
 			if(It->m_NewMoved)
 			{
-				fs::remove(Destination, Ec);
-				if(Ec)
+				try
+				{
+					fs::remove(It->m_Destination, Ec);
+					if(Ec)
+						Restored = false;
+				}
+				catch(...)
+				{
 					Restored = false;
+				}
 			}
-			if(It->m_OldMoved && !Move(Backup / It->m_Relative, Destination))
+			if(It->m_OldMoved && !Move(It->m_Backup, It->m_Destination))
 				Restored = false;
 		}
 		Error = Restored ? "Installation failed; previous files were restored. Backup: " : "Installation and rollback failed. Do not restart; restore from backup: ";
 		Error += Utf8(Backup);
 		return false;
 	}
-	fs::remove_all(Stage, Ec);
+	try
+	{
+		fs::remove_all(Stage, Ec);
+	}
+	catch(...)
+	{
+		// Installation succeeded; optional stage cleanup must not change that.
+	}
 	// Keep the previous executables/resources and journal, including a renamed
 	// running updater on Windows. User configurations/replays were never replaced.
 	Error.clear();

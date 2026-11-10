@@ -2,6 +2,16 @@
 
 Обновлено: **2026-11-10**, UTC. Checkout `/home/user/best-v2`, рабочая ветка **`arena/733fc6a9-best-v2`**. Исходный commit `244d7d487a48a482d1ecdd77d7190fe5bd5e35ca` содержал только README. С тех пор импортирована публичная основа и написана существенная интеграция. Старое investigation-only описание заменено этим фактическим статусом.
 
+## Последнее продолжение (приоритетнее старых next steps ниже)
+
+- Исходники импортированы/закоммичены/отправлены **только** в `arena/733fc6a9-best-v2`: commit `c67b7384838b4f6a8b515b9b2aa98ae691e161cb`. Native build9 после committed sources: **8/8,exit0**, `.artifacts/build-native-9.*`; actual package stage создан. Source archive в `build/package-checks/artifacts/bestclient-malinka-source.tar.gz` (56MiB), не в Git.
+- Новый generator прошёл **50 isolated checks/0 failures/exit0**, включая UTF-8 paths, duplicate aliases, markers/notices, no-overwrite и bootstrap existing-directory safety. `.artifacts/package-generator-run-1.*`. Это synthetic fixtures, actual native package C++ integration ещё впереди.
+- Первый GitHub run **42869130981** действительно запущен. Windows job **130015341841** завершился **failure** в Build and create portable staging tree; Linux на момент запроса ещё работал. MSVC errors пока **не получены**: gh log download переадресуется на недоступный Azure blob host, Checks API annotation содержит лишь exit1. **Не объявлять MSVC успешным.**
+- Добавлен `scripts/malinka_ci_build.py`: сохраняет полный compile log и публикует до25 реальных compiler error annotations через GitHub runner, доступных Checks API. Изолированный wrapper check сохранил intentional **exit7** и escaped `%25`. Workflow обновлён, следующий push должен запустить новое наблюдаемое build. Actions Node20 deprecation warning не доказана причиной compile failure.
+- Проверка updater выявила реальную exception safety дыру: Progress callback `bad_alloc` после первого файла обходил rollback. Logic run4 **9454checks/3failures/exit1** (негативное доказательство дефекта). `malinka_package.h` исправлен: заранее выделенные paths; catch→rollback; no-throw Move; продолжение rollback при исключении; optional cleanup не меняет успешный результат. Проверяется и внезапно появившийся regular destination, который нельзя перезаписать без backup.
+- Повторный ASan+UBSan logic run5: **9459checks/0failures/exit0**, `.artifacts/check-logic-5.*`, fresh `.artifacts/checks-5`. **Новый header ещё требует native rebuild и Windows cross/MSVC build**. Не считать build9 включающим это изменение.
+- In-game/renderer/badge/update deployment по-прежнему не проверены/не выполнены. Handoff обновить после actual package integration и результатов нового CI.
+
 ## Точный запрос и несокращённый scope
 
 Пользователь просит добавить в BestClient вкладку **`malinka` со всеми функциями** присланного **`KRX-Client-18.9.1-win64-ultimate-v1.32`**, позволить обновления без потери функций, не получать `fake` вместо нормального BestClient badge в Tab после модификации, и panic по **Insert**, скрывающий cheat tabs до «перезайти».

@@ -48,7 +48,7 @@ jobs:
           rustup toolchain install 1.92.0 --profile minimal
           rustup override set 1.92.0
           python scripts/malinka_bootstrap.py
-          python -m py_compile scripts/malinka_bootstrap.py scripts/malinka_package.py
+          python -m py_compile scripts/malinka_bootstrap.py scripts/malinka_package.py scripts/malinka_ci_build.py
       - name: Configure C++20 client and checked updater
         shell: bash
         run: |
@@ -66,8 +66,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmake --build build-release --config Release --target game-client bestclient-updater --parallel 2
-          cmake --build build-release --config Release --target package_zip --parallel 2
+          python scripts/malinka_ci_build.py --log build-release/compile.log -- \
+            cmake --build build-release --config Release --target game-client bestclient-updater --parallel 2
+          python scripts/malinka_ci_build.py --log build-release/portable.log -- \
+            cmake --build build-release --config Release --target package_zip --parallel 2
       - name: Package checked fork artifact and exact sources
         shell: bash
         run: |
@@ -98,3 +100,14 @@ jobs:
           path: build/artifacts/
           retention-days: 14
           if-no-files-found: error
+      - name: Retain compiler logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: build-logs-${{ matrix.platform }}
+          path: |
+            build-release/compile.log
+            build-release/portable.log
+            build-release/CMakeCache.txt
+          retention-days: 14
+          if-no-files-found: ignore
