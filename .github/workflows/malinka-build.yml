@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   build:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci: one-shot artifact regression') }}
+    if: "${{ !startsWith(github.event.head_commit.message, 'ci: one-shot artifact regression') }}"
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
