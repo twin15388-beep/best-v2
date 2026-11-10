@@ -208,3 +208,18 @@ Compile/run **exit0** в обоих jobs. Linux package1026files,894installed/13
 Каждый companion source hash совпал с manifest своего artifact; bytewise equality архивов между платформами не заявляется. Это **не published update release**, не end-to-end deployment и не proof о сохранении ещё нереализованных функций.
 
 После удаления одноразового fixture обычный build workflow повторно выполнен: [CI42887818609](https://github.com/twin15388-beep/best-v2/actions/runs/42887818609), source/workflow **`0a0eeed0b463ade41801f2e76c0aaca5e1f338e9`**, **Windows/MSVC+Linux SUCCESS/exit0**,client/updater/package. Production sources/CMake/lock/normal workflow идентичны2d00f1f. Последние artifactsWindows13796858394/117825375bytes,Linux13797033179/116182078bytes,не downloaded locally/not releases. **Installer regression и ZIP/source hashes таблицы относятся к artifact2d00f1f**, не автоматически к новым архивам0a0eeed; binary reproducibility/restart не заявляются. Последующее сохранение документации не меняет проверенный production code.
+
+## Получение Windows файла без Actions/Azure URL
+
+Пользователь сообщил `ERR_SSL_PROTOCOL_ERROR` на artifact blob-host. Не отключать TLS. Тот же main ZIP из run42887818609 перенесён в файлы чата и подключённый Dropbox,без нового релиза/автообновления/пересборки. `bestclient-malinka-windows-x86_64.zip` **60418532bytes**,SHA256 **`653c7ed5853e6ae4bce948b0525442c1ac3c6305b62099e4c17a8c0d4862fb81`**;`DDNet.exe` **8948224bytes**,SHA256 **`b4a4cf17c450b57a68e43947176215f0321d61bf8c5bc2a4e4d6ac7db4a0e0d0`**. Это inner клиентский ZIP,а не outer117825375-byte Actions bundle.
+
+One-shot transfer run42897858639 SUCCESS;точная recipe в `git show 805eedbe5b4048e21a0f7a57a5cce2de13b5ffe7:.github/workflows/malinka-delivery-once.yml`. Transfer-only bounded unreferenced Git blobs не включались ни в binary commits,ни в branch refs;workspace verification per-chunk/whole SHA/CRC **exit0**. Temporary workflow удалён,normal workflow восстановлен. Fresh actual C++ `Package::ExtractZip`+`Package::Verify` под ASan+UBSan+LSan проверили **1038 manifest files/exit0**,не Win32 runtime. Exact commands и local logs — в HANDOFF. Access/share links не хранятся в Git.
+
+Распаковать весь ZIP в **новую тестовую папку**,не заменять основной BestClient;запускать `DDNet.exe` вместе с DLL и `data`. Чтобы не читать/переписывать обычный профиль,**перед первым запуском в тестовой копии** заменить `storage.cfg` на:
+
+```text
+add_path $CURRENTDIR
+add_path $DATADIR
+```
+
+Запускать из этой тестовой папки. Это отдельный локальный профиль,не доказательство проверки в игре;в оригинальном ZIP storage.cfg не менялся.
