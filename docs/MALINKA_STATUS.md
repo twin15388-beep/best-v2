@@ -33,7 +33,7 @@
 - Часть movement/prediction/advanced Avoid/Fent и dummy-fly функций.
 - Malinka Discord RPC profiles/custom app ID wiring; официальные IDs не выдуманы.
 - Внешняя авторизация нормального BestClient badge.
-- Windows/MSVC full-client build и реальный renderer/gameplay, panic/navigation/search/input-release/dummy/TAS regressions, two-install update/rollback и second-client remote badge observation.
+- Реальный Windows11 renderer/gameplay, panic/navigation/search, online dummy/TAS regressions, full updater window/process restart и second-client remote badge observation. Windows/MSVC full build уже прошёл; локальные snapshots/installer checks не заменяют игровые проверки.
 
 После KRX 1.32 появились другие функции. Pilot/Song HUD (1.36), advanced dummy modes (1.35), perfect silent/remove-useless/showall automation (1.34), F3/F4/player indicators (1.33) не считаются обязательной 1.32 parity только из-за наличия в текущей документации.
 
@@ -42,7 +42,8 @@
 - Native Linux build10: `game-client`, `bestclient-updater`, `package_zip` — **exit0**. Это sandbox toolchain, не Windows/runtime.
 - Generator: **50 isolated checks,0 failures,exit0**; ASan+UBSan logic после updater exception rollback fix — **9459checks,0 failures,exit0**.
 - Пакет1026files из `ed5a779` прошёл настоящий Python generator → C++ ZIP parser/verifier/installer в disposable directory, ASan+UBSan **exit0**. Проверены exception rollback, hash readback actual client, сохранение settings/replays, old-file backup и отказ при tampering. **Канал опубликованных releases и перезапуск нового client не проверены**.
-- GitHub run `42871289100`: **Linux full build/package/source artifacts success**. Windows MSVC прошёл прежний C2039, но **failed** на Win32 `IGNORE` macro из `windows.h`, протёкшем в menu enum. Win32 I/O перенесён в отдельный `file_safety.cpp`; native build12 и Windows updater/header-order cross-object checks **exit0**. Следующий MSVC run должен проверить исправление; полного Windows success пока нет. CI compiler diagnostics доступны через Checks API.
+- **GitHub run `42873249161`: Windows2022/MSVC x64 и Ubuntu24.04 — оба full build/package SUCCESS** для commit `bcef908`. Artifacts включают checked ZIP + exact source archive, не опубликованный update release. Исправлены C++20 shared_ptr API и Win32 macro leak через отдельный file_safety.cpp.
+- Следующий TAS fix: loaded/initial-world validation branches, transactional capture, exception cleanup и NaN/identity guards. Native build13 **168/168 exit0**; actual TAS load/validate/playback-input methods на двух real maps под ASan+UBSan — **8961checks,0 failures,exit0**, включая selected allocation failures и neutral input до validation. Онлайн, renderer и сервер при этих checks не запускались. Это изменение **ещё требует нового MSVC CI**, не относится к предыдущему success автоматически.
 
 ## Явно недоступные controls (72)
 

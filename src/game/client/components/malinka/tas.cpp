@@ -43,6 +43,13 @@
 namespace
 {
 
+bool PositionsMatch(vec2 Actual, vec2 Expected, float Tolerance)
+{
+	// A NaN distance must fail, not pass a negated "> tolerance" check.
+	return std::isfinite(Actual.x) && std::isfinite(Actual.y) &&
+		std::isfinite(Expected.x) && std::isfinite(Expected.y) && distance(Actual, Expected) <= Tolerance;
+}
+
 struct STasScreenPixelGrid
 {
 	float m_ScreenX0;
@@ -405,15 +412,15 @@ bool CMalinkaTas::LoadReplayFromPath(const char *pPath)
 
 bool CMalinkaTas::AtReplayStart() const
 {
-	if(m_vFrames.empty())
+	if(m_vFrames.empty() || m_PrimarySlot < 0 || m_PrimarySlot >= NUM_DUMMIES)
 		return false;
 	const CCharacter *pChar = GameClient()->m_PredictedWorld.GetCharacterById(GameClient()->m_aLocalIds[m_PrimarySlot]);
-	if(!pChar || distance(pChar->GetPos(), m_vFrames.front().m_Pos) > 1.0f)
+	if(!pChar || !PositionsMatch(pChar->GetPos(), m_vFrames.front().m_Pos, 1.0f))
 		return false;
 	if(m_vFrames.front().m_HasDummy)
 	{
 		const CCharacter *pDummy = GameClient()->m_PredictedWorld.GetCharacterById(GameClient()->m_aLocalIds[!m_PrimarySlot]);
-		if(!pDummy || distance(pDummy->GetPos(), m_vFrames.front().m_DummyPos) > 1.0f)
+		if(!pDummy || !PositionsMatch(pDummy->GetPos(), m_vFrames.front().m_DummyPos, 1.0f))
 			return false;
 	}
 	return true;
@@ -542,13 +549,14 @@ void CMalinkaTas::DrainEvents(CGameWorld &World, bool EmitEvents)
 	World.m_PredictedEvents.clear();
 }
 
-void CMalinkaTas::SimulationFailed()
+void CMalinkaTas::SimulationFailed() noexcept
 {
-	PushTasWarning("TAS", "Simulation unavailable (entity, tick limit or allocation failure). TAS stopped; no frame was accepted.");
+	// Cleanup precedes optional notifications, including on allocation failure.
 	StopPlayback();
 	StopRecording();
-	m_pValidationWorld.reset();
+	ShutdownWorld();
 	g_Config.m_MalinkaRecordReplay = 0;
+	PushTasWarning("TAS", "Simulation unavailable (entity, tick limit or allocation failure). TAS stopped; no frame was accepted.");
 }
 
 bool CMalinkaTas::ApplyFrame(CGameWorld &World, const SFrame &Frame, bool EmitEvents)
@@ -743,14 +751,24 @@ void CMalinkaTas::RunValidationSlice()
 {
 	if(!m_pValidationWorld)
 		return;
+	if(!CurrentMapMatches() || m_PrimarySlot < 0 || m_PrimarySlot >= NUM_DUMMIES ||
+		m_ValidationCursor < 0 || m_ValidationCursor > static_cast<int>(m_vFrames.size()) ||
+		m_aWorldClientIds[0] != GameClient()->m_aLocalIds[0] || m_aWorldClientIds[1] != GameClient()->m_aLocalIds[1])
+	{
+		m_pValidationWorld.reset();
+		if(m_ValidationForPlayback)
+			StopPlayback();
+		PushTasWarning("TAS validation", "Map or participant identity changed. Validation/playback stopped.");
+		return;
+	}
 	const int64_t Deadline = time_get() + time_freq() / 250;
 	for(int Budget = 0; Budget < 64 && m_ValidationCursor < static_cast<int>(m_vFrames.size()) && time_get() < Deadline; ++Budget)
 	{
 		const SFrame &Frame = m_vFrames[m_ValidationCursor];
 		const CCharacter *pChar = m_pValidationWorld->GetCharacterById(m_aWorldClientIds[m_PrimarySlot]);
 		const CCharacter *pDummy = m_pValidationWorld->GetCharacterById(m_aWorldClientIds[!m_PrimarySlot]);
-		if(!pChar || distance(pChar->GetPos(), Frame.m_Pos) > 0.5f ||
-			(Frame.m_HasDummy && (!pDummy || distance(pDummy->GetPos(), Frame.m_DummyPos) > 0.5f)))
+		if(!pChar || !PositionsMatch(pChar->GetPos(), Frame.m_Pos, 0.5f) ||
+			(Frame.m_HasDummy && (!pDummy || !PositionsMatch(pDummy->GetPos(), Frame.m_DummyPos, 0.5f))))
 		{
 			char aMessage[256];
 			str_format(aMessage, sizeof(aMessage), "Physics diverged at frame %d. Current world state differs from the recording; playback blocked.", m_ValidationCursor);
@@ -798,7 +816,7 @@ bool CMalinkaTas::NeedsNetworkInput() const
 	return m_Recording || m_Playing || g_Config.m_MalinkaRecordReplay || m_ReleasePlaybackInput;
 }
 
-int CMalinkaTas::PrepareNetworkInput(CNetObj_PlayerInput &Input, int Slot, int PredTick)
+int CMalinkaTas::PrepareNetworkInput(CNetObj_PlayerInput &Input, int Slot, int PredTick) try
 {
 	if(m_Recording || g_Config.m_MalinkaRecordReplay)
 		return 1;
@@ -872,6 +890,11 @@ int CMalinkaTas::PrepareNetworkInput(CNetObj_PlayerInput &Input, int Slot, int P
 	Input.m_PlayerFlags = Flags;
 	return 2;
 }
+catch(const std::exception &)
+{
+	SimulationFailed();
+	return 3; // The final network filter emits neutral/released input.
+}
 
 bool CMalinkaTas::GetPlaybackInput(CNetObj_PlayerInput &Out, int Slot) const
 {
@@ -919,13 +942,25 @@ vec2 CMalinkaTas::GetInterpolatedPlayerPos() const
 	return mix(pChar->GetPos(), pNext ? pNext->GetPos() : pChar->GetPos(), m_SmoothIntra);
 }
 
-void CMalinkaTas::PushTasWarning(const char *pTitle, const char *pMessage) const
+void CMalinkaTas::PushTasWarning(const char *pTitle, const char *pMessage) const noexcept
 {
-	GameClient()->m_MalinkaVisuals.PushNotification(SWarning(pTitle, pMessage));
-	Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "malinka/tas", pMessage);
+	try
+	{
+		if(GameClient())
+		{
+			GameClient()->m_MalinkaVisuals.PushNotification(SWarning(pTitle, pMessage));
+			if(Console())
+				Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "malinka/tas", pMessage);
+		}
+	}
+	catch(...)
+	{
+		// The notification queue/logging is optional. In particular, a failed
+		// allocation here must not prevent input release or world cleanup.
+	}
 }
 
-void CMalinkaTas::SaveReplay()
+void CMalinkaTas::SaveReplay() try
 {
 	char aPath[IO_MAX_PATH_LENGTH];
 	if(m_vFrames.empty() || !GetReplaySavePath(aPath, sizeof(aPath), false) || !SaveReplayToPath(aPath))
@@ -935,8 +970,12 @@ void CMalinkaTas::SaveReplay()
 	}
 	PushTasWarning("TAS", "Replay saved with checksum, map identity, and backup of any replaced file.");
 }
+catch(const std::exception &)
+{
+	PushTasWarning("TAS", "Replay save failed (allocation/filesystem exception); inspect .new/.bak before retrying.");
+}
 
-void CMalinkaTas::LoadSelectedReplay()
+void CMalinkaTas::LoadSelectedReplay() try
 {
 	if(m_Recording || m_Playing)
 	{
@@ -951,51 +990,64 @@ void CMalinkaTas::LoadSelectedReplay()
 	}
 	PushTasWarning("TAS", m_Metadata.m_Legacy ? "Legacy Pasta path loaded for viewing only; map identity/physics are unknown, playback is blocked." : "Replay loaded; playback requires matching map/physics and start state.");
 }
+catch(const std::exception &)
+{
+	PushTasWarning("TAS", "Replay load failed (allocation/filesystem exception); no new replay was accepted.");
+}
 
-void CMalinkaTas::ValidateReplay()
+void CMalinkaTas::ValidateReplay() try
 {
 	if(m_Recording || m_Playing || m_vFrames.empty())
 	{
 		PushTasWarning("TAS validation", "Stop recording/playback and load a replay before validating.");
 		return;
 	}
+	m_pValidationWorld.reset();
+	m_ValidationCursor = 0;
+	m_ValidationForPlayback = false;
 	std::string Error;
 	if(!Malinka::Replay::ValidateFrames(m_vFrames, Error) || !CurrentMapMatches())
 	{
 		PushTasWarning("TAS validation", Error.empty() ? "Map identity/physics do not match (or legacy format)." : Error.c_str());
 		return;
 	}
-	m_pValidationWorld = std::make_unique<CGameWorld>();
+	// Publish only a completely captured world; a failed capture leaves no
+	// empty validation world that could be mistaken for an initialized one.
+	auto pValidationWorld = std::make_unique<CGameWorld>();
 	if(m_pInitialWorld)
-		if(!m_pValidationWorld->CopyWorldIndependent(m_pInitialWorld.get()))
+	{
+		if(!pValidationWorld->CopyWorldIndependent(m_pInitialWorld.get()))
 		{
-			PushTasWarning("TAS", "Independent snapshot failed. TAS stopped without sending replay actions.");
-			StopPlayback();
-			StopRecording();
-			g_Config.m_MalinkaRecordReplay = 0;
+			SimulationFailed();
 			return;
 		}
+	}
 	else
 	{
 		m_PrimarySlot = g_Config.m_ClDummy;
 		if(!AtReplayStart())
 		{
-			m_pValidationWorld.reset();
 			PushTasWarning("TAS validation", "Stand at both replay start positions so the current world can be simulated.");
 			return;
 		}
 		m_aWorldClientIds = {GameClient()->m_aLocalIds[0], GameClient()->m_aLocalIds[1]};
-		if(!m_pValidationWorld->CopyWorldIndependent(&GameClient()->m_PredictedWorld))
+		if(!pValidationWorld->CopyWorldIndependent(&GameClient()->m_PredictedWorld))
 		{
-			PushTasWarning("TAS", "Independent snapshot failed. TAS stopped without sending replay actions.");
-			StopPlayback();
-			StopRecording();
-			g_Config.m_MalinkaRecordReplay = 0;
+			SimulationFailed();
 			return;
 		}
+		pValidationWorld->m_WorldConfig.m_PredictTeleports = g_Config.m_MalinkaPredictionTeleports != 0;
+		if(!g_Config.m_MalinkaTasPlayerPrediction)
+			for(int Id = 0; Id < MAX_CLIENTS; ++Id)
+				if(Id != m_aWorldClientIds[0] && Id != m_aWorldClientIds[1])
+					if(auto *pChar = pValidationWorld->GetCharacterById(Id))
+						delete pChar;
 	}
-	m_ValidationCursor = 0;
-	m_ValidationForPlayback = false;
+	m_pValidationWorld = std::move(pValidationWorld);
+}
+catch(const std::exception &)
+{
+	SimulationFailed();
 }
 
 void CMalinkaTas::ReportReplayTime()
@@ -1010,7 +1062,7 @@ void CMalinkaTas::SyncNow()
 	PushTasWarning("Replay vault", "Vault sync is not implemented. Two official zlib/JSON samples were measured, but a validated importer is not connected.");
 }
 
-void CMalinkaTas::OnUpdate()
+void CMalinkaTas::OnUpdate() try
 {
 	const int64_t Now = time_get();
 	const double Delta = m_LastUpdateTime ? std::clamp(static_cast<double>(Now - m_LastUpdateTime) / time_freq(), 0.0, 0.1) : 0.0;
@@ -1093,6 +1145,10 @@ void CMalinkaTas::OnUpdate()
 			PushTasWarning("TAS autosave", m_LastIoError.empty() ? "Autosave failed." : m_LastIoError.c_str());
 		m_LastAutoSave = Now;
 	}
+}
+catch(const std::exception &)
+{
+	SimulationFailed();
 }
 
 void CMalinkaTas::RenderStartEndPos()

@@ -128,14 +128,14 @@ private:
 	void RunValidationSlice();
 	bool IsLocalFrozenInWorld() const;
 	[[nodiscard]] bool ApplyFrame(CGameWorld &World, const SFrame &Frame, bool EmitEvents);
-	void SimulationFailed();
+	void SimulationFailed() noexcept;
 	void UpdatePredictedWorld(const CNetObj_PlayerInput &Input, vec2 Mouse);
 	void DrainEvents(CGameWorld &World, bool EmitEvents);
 	bool SaveReplayToPath(const char *pPath) const;
 	bool LoadReplayFromPath(const char *pPath);
 	bool FindReplayPath(char *pBuf, int BufSize, bool ExactStemOnly) const;
 	bool GetReplaySavePath(char *pBuf, int BufSize, bool AutoSave) const;
-	void PushTasWarning(const char *pTitle, const char *pMessage) const;
+	void PushTasWarning(const char *pTitle, const char *pMessage) const noexcept;
 	void RenderTasWorld();
 	void RenderStartEndPos();
 	void RenderReplayPath();
