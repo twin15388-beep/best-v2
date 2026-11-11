@@ -1,0 +1,438 @@
+# Disposable independent acquisition only. Production helper input remains disabled.
+name: Malinka companion owned official local-map acquisition
+on:
+  push:
+    branches: ["arena/733fc6a9-best-v2"]
+    paths: [".github/workflows/malinka-companion-runtime.yml"]
+permissions:
+  contents: write
+jobs:
+  acquire:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      CARGO_HTTP_MULTIPLEXING: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: BestProjectTeam/BestClient
+          ref: cf192e3fb8590dbe2e4f66a191aa6616beff6975
+          path: upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Create temporary acquisition files outside production sources
+        shell: python
+        run: |
+          from pathlib import Path
+          Path('runtime_public_layout.cpp').write_text('#include <cstddef>\n#include <cstdio>\n#include <game/client/gameclient.h>\n#include <game/client/prediction/entities/character.h>\n#include <engine/shared/config.h>\n#include <game/mapitems.h>\nint main() {\n std::puts("{");\n std::printf("\\"sizeof_CGameClient\\":%zu,\\n",sizeof(CGameClient));\n std::printf("\\"sizeof_CGameClient::CSnapState\\":%zu,\\n",sizeof(CGameClient::CSnapState));\n std::printf("\\"sizeof_CGameClient::CSnapState::CCharacterInfo\\":%zu,\\n",sizeof(CGameClient::CSnapState::CCharacterInfo));\n std::printf("\\"sizeof_CGameClient::CClientData\\":%zu,\\n",sizeof(CGameClient::CClientData));\n std::printf("\\"sizeof_CCharacterCore\\":%zu,\\n",sizeof(CCharacterCore));\n std::printf("\\"sizeof_CGameWorld\\":%zu,\\n",sizeof(CGameWorld));\n std::printf("\\"sizeof_CWorldCore\\":%zu,\\n",sizeof(CWorldCore));\n std::printf("\\"sizeof_CConfig\\":%zu,\\n",sizeof(CConfig));\n std::printf("\\"sizeof_CTuningParams\\":%zu,\\n",sizeof(CTuningParams));\n std::printf("\\"sizeof_CNetObj_Character\\":%zu,\\n",sizeof(CNetObj_Character));\n std::printf("\\"sizeof_CNetObj_DDNetCharacter\\":%zu,\\n",sizeof(CNetObj_DDNetCharacter));\n std::printf("\\"sizeof_CNetObj_PlayerInput\\":%zu,\\n",sizeof(CNetObj_PlayerInput));\n std::printf("\\"sizeof_CTile\\":%zu,\\n",sizeof(CTile));\n std::printf("\\"sizeof_CMapItemLayerTilemap_v2\\":%zu,\\n",sizeof(CMapItemLayerTilemap_v2));\n std::printf("\\"sizeof_CMapItemLayer\\":%zu,\\n",sizeof(CMapItemLayer));\n std::printf("\\"sizeof_CControls\\":%zu,\\n",sizeof(CControls));\n std::printf("\\"sizeof_CCollision\\":%zu,\\n",sizeof(CCollision));\n std::printf("\\"CGameClient.m_Snap\\":%zu,\\n",offsetof(CGameClient,m_Snap));\n std::printf("\\"CGameClient.m_aClients\\":%zu,\\n",offsetof(CGameClient,m_aClients));\n std::printf("\\"CGameClient.m_aLocalIds\\":%zu,\\n",offsetof(CGameClient,m_aLocalIds));\n std::printf("\\"CGameClient.m_Controls\\":%zu,\\n",offsetof(CGameClient,m_Controls));\n std::printf("\\"CGameClient.m_PredictedWorld\\":%zu,\\n",offsetof(CGameClient,m_PredictedWorld));\n std::printf("\\"CGameClient.m_GameWorld\\":%zu,\\n",offsetof(CGameClient,m_GameWorld));\n std::printf("\\"CGameClient.m_aTuning\\":%zu,\\n",offsetof(CGameClient,m_aTuning));\n std::printf("\\"CGameClient.m_aLocalTuneZone\\":%zu,\\n",offsetof(CGameClient,m_aLocalTuneZone));\n std::printf("\\"CGameClient.m_aReceivedTuning\\":%zu,\\n",offsetof(CGameClient,m_aReceivedTuning));\n std::printf("\\"CGameClient::CSnapState.m_LocalClientId\\":%zu,\\n",offsetof(CGameClient::CSnapState,m_LocalClientId));\n std::printf("\\"CGameClient::CSnapState.m_NumPlayers\\":%zu,\\n",offsetof(CGameClient::CSnapState,m_NumPlayers));\n std::printf("\\"CGameClient::CSnapState.m_pLocalCharacter\\":%zu,\\n",offsetof(CGameClient::CSnapState,m_pLocalCharacter));\n std::printf("\\"CGameClient::CSnapState.m_aCharacters\\":%zu,\\n",offsetof(CGameClient::CSnapState,m_aCharacters));\n std::printf("\\"CGameClient::CSnapState::CCharacterInfo.m_Active\\":%zu,\\n",offsetof(CGameClient::CSnapState::CCharacterInfo,m_Active));\n std::printf("\\"CGameClient::CSnapState::CCharacterInfo.m_Cur\\":%zu,\\n",offsetof(CGameClient::CSnapState::CCharacterInfo,m_Cur));\n std::printf("\\"CGameClient::CSnapState::CCharacterInfo.m_ExtendedData\\":%zu,\\n",offsetof(CGameClient::CSnapState::CCharacterInfo,m_ExtendedData));\n std::printf("\\"CGameClient::CSnapState::CCharacterInfo.m_HasExtendedData\\":%zu,\\n",offsetof(CGameClient::CSnapState::CCharacterInfo,m_HasExtendedData));\n std::printf("\\"CGameClient::CClientData.m_Predicted\\":%zu,\\n",offsetof(CGameClient::CClientData,m_Predicted));\n std::printf("\\"CGameClient::CClientData.m_RenderPos\\":%zu,\\n",offsetof(CGameClient::CClientData,m_RenderPos));\n std::printf("\\"CGameClient::CClientData.m_Active\\":%zu,\\n",offsetof(CGameClient::CClientData,m_Active));\n std::printf("\\"CGameClient::CClientData.m_FreezeEnd\\":%zu,\\n",offsetof(CGameClient::CClientData,m_FreezeEnd));\n std::printf("\\"CGameClient::CClientData.m_DeepFrozen\\":%zu,\\n",offsetof(CGameClient::CClientData,m_DeepFrozen));\n std::printf("\\"CGameClient::CClientData.m_LiveFrozen\\":%zu,\\n",offsetof(CGameClient::CClientData,m_LiveFrozen));\n std::printf("\\"CCharacterCore.m_Pos\\":%zu,\\n",offsetof(CCharacterCore,m_Pos));\n std::printf("\\"CCharacterCore.m_Vel\\":%zu,\\n",offsetof(CCharacterCore,m_Vel));\n std::printf("\\"CCharacterCore.m_HookPos\\":%zu,\\n",offsetof(CCharacterCore,m_HookPos));\n std::printf("\\"CCharacterCore.m_HookDir\\":%zu,\\n",offsetof(CCharacterCore,m_HookDir));\n std::printf("\\"CCharacterCore.m_HookTick\\":%zu,\\n",offsetof(CCharacterCore,m_HookTick));\n std::printf("\\"CCharacterCore.m_HookState\\":%zu,\\n",offsetof(CCharacterCore,m_HookState));\n std::printf("\\"CCharacterCore.m_Id\\":%zu,\\n",offsetof(CCharacterCore,m_Id));\n std::printf("\\"CCharacterCore.m_Input\\":%zu,\\n",offsetof(CCharacterCore,m_Input));\n std::printf("\\"CCharacterCore.m_Tuning\\":%zu,\\n",offsetof(CCharacterCore,m_Tuning));\n std::printf("\\"CCharacterCore.m_FreezeStart\\":%zu,\\n",offsetof(CCharacterCore,m_FreezeStart));\n std::printf("\\"CCharacterCore.m_FreezeEnd\\":%zu,\\n",offsetof(CCharacterCore,m_FreezeEnd));\n std::printf("\\"CCharacterCore.m_IsInFreeze\\":%zu,\\n",offsetof(CCharacterCore,m_IsInFreeze));\n std::printf("\\"CCharacterCore.m_DeepFrozen\\":%zu,\\n",offsetof(CCharacterCore,m_DeepFrozen));\n std::printf("\\"CCharacterCore.m_LiveFrozen\\":%zu,\\n",offsetof(CCharacterCore,m_LiveFrozen));\n std::printf("\\"CCharacterCore.m_Jumped\\":%zu,\\n",offsetof(CCharacterCore,m_Jumped));\n std::printf("\\"CCharacterCore.m_JumpedTotal\\":%zu,\\n",offsetof(CCharacterCore,m_JumpedTotal));\n std::printf("\\"CCharacterCore.m_Jumps\\":%zu,\\n",offsetof(CCharacterCore,m_Jumps));\n std::printf("\\"CCharacterCore.m_Direction\\":%zu,\\n",offsetof(CCharacterCore,m_Direction));\n std::printf("\\"CCharacterCore.m_Angle\\":%zu,\\n",offsetof(CCharacterCore,m_Angle));\n std::printf("\\"CGameWorld.m_Core\\":%zu,\\n",offsetof(CGameWorld,m_Core));\n std::printf("\\"CGameWorld.m_GameTick\\":%zu,\\n",offsetof(CGameWorld,m_GameTick));\n std::printf("\\"CGameWorld.m_LocalClientId\\":%zu,\\n",offsetof(CGameWorld,m_LocalClientId));\n std::printf("\\"CGameWorld.m_WorldConfig\\":%zu,\\n",offsetof(CGameWorld,m_WorldConfig));\n std::printf("\\"CWorldCore.m_apCharacters\\":%zu,\\n",offsetof(CWorldCore,m_apCharacters));\n std::printf("\\"CConfig.m_ClDummy\\":%zu,\\n",offsetof(CConfig,m_ClDummy));\n std::printf("\\"CTuningParams.m_Gravity\\":%zu,\\n",offsetof(CTuningParams,m_Gravity));\n std::printf("\\"CTuningParams.m_GroundControlSpeed\\":%zu,\\n",offsetof(CTuningParams,m_GroundControlSpeed));\n std::printf("\\"CNetObj_Character.m_Tick\\":%zu,\\n",offsetof(CNetObj_Character,m_Tick));\n std::printf("\\"CNetObj_Character.m_X\\":%zu,\\n",offsetof(CNetObj_Character,m_X));\n std::printf("\\"CNetObj_Character.m_Y\\":%zu,\\n",offsetof(CNetObj_Character,m_Y));\n std::printf("\\"CNetObj_Character.m_VelX\\":%zu,\\n",offsetof(CNetObj_Character,m_VelX));\n std::printf("\\"CNetObj_Character.m_VelY\\":%zu,\\n",offsetof(CNetObj_Character,m_VelY));\n std::printf("\\"CNetObj_Character.m_HookState\\":%zu,\\n",offsetof(CNetObj_Character,m_HookState));\n std::printf("\\"CNetObj_Character.m_HookedPlayer\\":%zu,\\n",offsetof(CNetObj_Character,m_HookedPlayer));\n std::printf("\\"CNetObj_DDNetCharacter.m_FreezeEnd\\":%zu,\\n",offsetof(CNetObj_DDNetCharacter,m_FreezeEnd));\n std::printf("\\"CNetObj_DDNetCharacter.m_Flags\\":%zu,\\n",offsetof(CNetObj_DDNetCharacter,m_Flags));\n std::printf("\\"CNetObj_PlayerInput.m_Direction\\":%zu,\\n",offsetof(CNetObj_PlayerInput,m_Direction));\n std::printf("\\"CNetObj_PlayerInput.m_Jump\\":%zu,\\n",offsetof(CNetObj_PlayerInput,m_Jump));\n std::printf("\\"CNetObj_PlayerInput.m_Hook\\":%zu,\\n",offsetof(CNetObj_PlayerInput,m_Hook));\n std::printf("\\"CNetObj_PlayerInput.m_TargetX\\":%zu,\\n",offsetof(CNetObj_PlayerInput,m_TargetX));\n std::printf("\\"CNetObj_PlayerInput.m_TargetY\\":%zu,\\n",offsetof(CNetObj_PlayerInput,m_TargetY));\n std::printf("\\"CTile.m_Index\\":%zu,\\n",offsetof(CTile,m_Index));\n std::printf("\\"CTile.m_Flags\\":%zu,\\n",offsetof(CTile,m_Flags));\n std::printf("\\"CTile.m_Skip\\":%zu,\\n",offsetof(CTile,m_Skip));\n std::printf("\\"CMapItemLayerTilemap_v2.m_Layer\\":%zu,\\n",offsetof(CMapItemLayerTilemap_v2,m_Layer));\n std::printf("\\"CMapItemLayerTilemap_v2.m_Version\\":%zu,\\n",offsetof(CMapItemLayerTilemap_v2,m_Version));\n std::printf("\\"CMapItemLayerTilemap_v2.m_Width\\":%zu,\\n",offsetof(CMapItemLayerTilemap_v2,m_Width));\n std::printf("\\"CMapItemLayerTilemap_v2.m_Height\\":%zu,\\n",offsetof(CMapItemLayerTilemap_v2,m_Height));\n std::printf("\\"CMapItemLayerTilemap_v2.m_Flags\\":%zu,\\n",offsetof(CMapItemLayerTilemap_v2,m_Flags));\n std::printf("\\"CMapItemLayerTilemap_v2.m_Data\\":%zu,\\n",offsetof(CMapItemLayerTilemap_v2,m_Data));\n std::printf("\\"CMapItemLayer.m_Type\\":%zu,\\n",offsetof(CMapItemLayer,m_Type));\n std::printf("\\"CControls.m_aInputData\\":%zu,\\n",offsetof(CControls,m_aInputData));\n std::printf("\\"constant_MAX_CLIENTS\\":%zu,\\n",static_cast<std::size_t>(MAX_CLIENTS));\n std::printf("\\"constant_NUM_DUMMIES\\":%zu,\\n",static_cast<std::size_t>(NUM_DUMMIES));\n std::printf("\\"constant_SERVER_TICK_SPEED\\":%zu,\\n",static_cast<std::size_t>(SERVER_TICK_SPEED));\n std::printf("\\"constant_IClient::STATE_ONLINE\\":%zu,\\n",static_cast<std::size_t>(IClient::STATE_ONLINE));\n std::printf("\\"constant_IClient::STATE_OFFLINE\\":%zu,\\n",static_cast<std::size_t>(IClient::STATE_OFFLINE));\n std::printf("\\"constant_HOOK_IDLE\\":%zu,\\n",static_cast<std::size_t>(HOOK_IDLE));\n std::printf("\\"constant_TILE_AIR\\":%zu,\\n",static_cast<std::size_t>(TILE_AIR));\n std::printf("\\"constant_TILE_SOLID\\":%zu,\\n",static_cast<std::size_t>(TILE_SOLID));\n std::printf("\\"constant_TILE_FREEZE\\":%zu,\\n",static_cast<std::size_t>(TILE_FREEZE));\n std::printf("\\"constant_ENTITY_SPAWN\\":%zu,\\n",static_cast<std::size_t>(ENTITY_SPAWN));\n std::printf("\\"constant_ENTITY_OFFSET\\":%zu,\\n",static_cast<std::size_t>(ENTITY_OFFSET));\n std::printf("\\"constant_MAPITEMTYPE_LAYER\\":%zu,\\n",static_cast<std::size_t>(MAPITEMTYPE_LAYER));\n std::printf("\\"constant_LAYERTYPE_TILES\\":%zu,\\n",static_cast<std::size_t>(LAYERTYPE_TILES));\n std::printf("\\"constant_TILESLAYERFLAG_GAME\\":%zu,\\n",static_cast<std::size_t>(TILESLAYERFLAG_GAME));\n std::puts("\\"runtime_validated\\":false}");\n}\n',encoding="utf-8")
+          Path('runtime_owned_map.py').write_text("# Disposable SERVER-side test map. Never patches the official client or its\n# files. The unchanged client obtains it through the ordinary local server.\n# Format: pinned src/engine/shared/datafile.cpp and src/game/mapitems.h.\nimport hashlib, struct, zlib\n\ndef owned_freeze_map(original, layout):\n    assert 36<=len(original)<=2*1024*1024\n    magic,version,total,swap,nt,ni,nd,item_size,data_size=struct.unpack_from('<4s8i',original)\n    assert magic==b'DATA' and version==4 and total==len(original)-16\n    assert 0<nt<=64 and 0<ni<=4096 and 0<nd<=4096\n    item_offsets_at=36+nt*12;data_offsets_at=item_offsets_at+ni*4\n    raw_sizes_at=data_offsets_at+nd*4;item_start=raw_sizes_at+nd*4;data_start=item_start+item_size\n    assert data_start==swap+16 and data_start+data_size==len(original)\n    offsets=list(struct.unpack_from('<'+str(ni)+'i',original,item_offsets_at))\n    raw_offsets=list(struct.unpack_from('<'+str(nd)+'i',original,data_offsets_at))\n    sizes=list(struct.unpack_from('<'+str(nd)+'i',original,raw_sizes_at))\n    assert raw_offsets[0]==0 and raw_offsets==sorted(raw_offsets)\n    assert all(0<=size<=16*1024*1024 for size in sizes) and sum(sizes)<=64*1024*1024\n    layers=[]\n    for offset in offsets:\n        assert 0<=offset<=item_size-8\n        type_id,length=struct.unpack_from('<2i',original,item_start+offset)\n        assert 0<=length<=item_size-offset-8\n        if (type_id>>16)&0xffff!=layout['constant_MAPITEMTYPE_LAYER']:continue\n        data=original[item_start+offset+8:item_start+offset+8+length]\n        def field(name):return struct.unpack_from('<i',data,layout['CMapItemLayerTilemap_v2.'+name])[0]\n        if len(data)<layout['sizeof_CMapItemLayerTilemap_v2']:continue\n        layer_type=struct.unpack_from('<i',data,layout['CMapItemLayerTilemap_v2.m_Layer']+layout['CMapItemLayer.m_Type'])[0]\n        if layer_type!=layout['constant_LAYERTYPE_TILES']:continue\n        if field('m_Flags')&layout['constant_TILESLAYERFLAG_GAME']:\n            layers.append((field('m_Width'),field('m_Height'),field('m_Data')))\n    assert len(layers)==1\n    width,height,index=layers[0]\n    assert 24<=width<=512 and 24<=height<=512 and 0<=index<nd\n    assert layout['sizeof_CTile']==4 and sizes[index]==width*height*4\n    chunks=[]\n    for n,offset in enumerate(raw_offsets):\n        end=raw_offsets[n+1] if n+1<nd else data_size\n        assert 0<=offset<=end<=data_size\n        packed=original[data_start+offset:data_start+end]\n        decoder=zlib.decompressobj();decoded=decoder.decompress(packed,sizes[n]+1)\n        assert len(decoded)==sizes[n] and decoder.eof and not decoder.unconsumed_tail and not decoder.unused_data\n        chunks.append(packed)\n    tiles=bytearray(width*height*4)\n    spawn_x,spawn_y=width//2,5\n    freeze_y=height//3;ground_y=height-3\n    assert freeze_y>spawn_y+2 and freeze_y+4<ground_y\n    def put(x,y,kind):tiles[(y*width+x)*4+layout['CTile.m_Index']]=kind\n    for y in range(height):\n        for x in range(width):\n            if x==0 or x==width-1 or y==0 or y>=ground_y:put(x,y,layout['constant_TILE_SOLID'])\n            elif freeze_y<=y<freeze_y+4:put(x,y,layout['constant_TILE_FREEZE'])\n    put(spawn_x,spawn_y,layout['constant_ENTITY_OFFSET']+layout['constant_ENTITY_SPAWN'])\n    chunks[index]=zlib.compress(bytes(tiles),9)\n    rebuilt=bytearray(original[:data_start]);new_offsets=[];position=0\n    for chunk in chunks:new_offsets.append(position);position+=len(chunk)\n    struct.pack_into('<i',rebuilt,8,data_start+position-16)\n    struct.pack_into('<i',rebuilt,32,position)\n    struct.pack_into('<'+str(nd)+'i',rebuilt,data_offsets_at,*new_offsets)\n    result=bytes(rebuilt)+b''.join(chunks)\n    assert len(result)==struct.unpack_from('<i',result,8)[0]+16\n    check=zlib.decompress(result[data_start+new_offsets[index]:data_start+new_offsets[index]+len(chunks[index])])\n    assert check==tiles\n    geometry={'width':width,'height':height,'spawn_tile':[spawn_x,spawn_y],\n              'spawn_center':[spawn_x*32+16,spawn_y*32+16],'freeze_rows':[freeze_y,freeze_y+3],\n              'ground_row':ground_y,'game_raw_index':index,'tile_bytes_sha256':hashlib.sha256(tiles).hexdigest(),\n              'map_sha256':hashlib.sha256(result).hexdigest(),'base_dm1_sha256':hashlib.sha256(original).hexdigest(),\n              'source':'BestProjectTeam/BestClient@cf192e3fb8590dbe2e4f66a191aa6616beff6975 datafile.cpp/mapitems.h',\n              'client_files_patched':False}\n    return result,geometry\n",encoding="utf-8")
+      - name: Measure pinned public layouts and compile owned local test server
+        shell: python
+        run: |
+          try:
+              import json, os, re, subprocess, traceback
+              from pathlib import Path
+
+              work=Path('build-owned-acquisition');work.mkdir(exist_ok=False)
+              upstream=Path('upstream').resolve()
+              source=work/'layout-source';source.mkdir()
+              generated=source/'generated';generated.mkdir()
+
+              def command(args,name,timeout=540):
+                  r=subprocess.run([str(a) for a in args],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,errors='replace',timeout=timeout)
+                  (work/(name+'.log')).write_text(r.stdout,encoding='utf-8')
+                  (work/(name+'.exit')).write_text(str(r.returncode)+'\n',encoding='utf-8')
+                  if r.returncode:
+                      errors='\n'.join(line for line in r.stdout.splitlines() if re.search(r'(?:fatal )?error (?:C\d|LNK\d|MSB\d)|CMake Error|error:',line))
+                      detail=(errors or r.stdout[-3300:])[:3300]
+                      print('::error title='+name+'::'+detail.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+                      raise RuntimeError(name+' exit '+str(r.returncode))
+                  print(name+' exit0')
+                  return r.stdout
+
+              for script, argument, output in [
+                  (['datasrc/compile.py'],'network_header','protocol.h'),
+                  (['datasrc/compile.py'],'content_types_header','data_types.h'),
+                  (['datasrc/compile.py'],'client_content_header','client_data.h'),
+                  (['-m','datasrc.seven.compile'],'network_header','protocol7.h'),
+                  (['-m','datasrc.seven.compile'],'client_content_header','client_data7.h'),
+                  (['datasrc/crosscompile.py'],'map_header','protocolglue.h')]:
+                  data=subprocess.check_output(['python',*script,argument],cwd=upstream)
+                  (generated/output).write_bytes(data)
+              # The workflow's setup step writes the actual public offsetof probe here.
+              (source/'public.cpp').write_bytes(Path('runtime_public_layout.cpp').read_bytes())
+              private_targets={'collision':'CCollision','iclient':'IClient','core':'CCharacterCore'}
+              for name,typ in private_targets.items():
+                  (source/(name+'.cpp')).write_text('#include <game/client/gameclient.h>\nint main(){return sizeof('+typ+')>0?0:1;}\n',encoding='utf-8')
+              cmake=r'''
+              cmake_minimum_required(VERSION 3.24)
+              project(OwnedPublicLayoutAcquisition LANGUAGES CXX)
+              set(CMAKE_CXX_STANDARD 20)
+              set(CMAKE_CXX_STANDARD_REQUIRED ON)
+              set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+              file(TO_CMAKE_PATH "@U@" U)
+              function(add_layout name type)
+                add_executable(${name} ${name}.cpp)
+                target_compile_definitions(${name} PRIVATE CONF_AUTOUPDATE CONF_DISCORD CONF_DISCORD_DYNAMIC CONF_VIDEORECORDER _ITERATOR_DEBUG_LEVEL=0 NOMINMAX WIN32_LEAN_AND_MEAN)
+                target_compile_options(${name} PRIVATE /W3 /utf-8 "/d1reportSingleClassLayout${type}")
+                target_include_directories(${name} PRIVATE "${U}/src" "${U}/src/rust-bridge" "${CMAKE_CURRENT_SOURCE_DIR}" "${U}/ddnet-libs/sdl/include/windows" "${U}/ddnet-libs/curl/include" "${U}/ddnet-libs/sqlite3/include" "${U}/ddnet-libs/zlib/include" "${U}/ddnet-libs/discord/include")
+              endfunction()
+              add_layout(public CGameClient)
+              add_layout(collision CCollision)
+              add_layout(iclient IClient)
+              add_layout(core CCharacterCore)
+              '''.replace('@U@',upstream.as_posix())
+              (source/'CMakeLists.txt').write_text(cmake,encoding='utf-8')
+              command(['cmake','-S',source,'-B',work/'layout','-A','x64'],'layout-configure')
+              log=command(['cmake','--build',work/'layout','--config','Release','--parallel','1'],'layout-build')
+              public=json.loads(subprocess.check_output([work/'layout/Release/public.exe'],text=True))
+              private={};current=None
+              for line in log.splitlines():
+                  m=re.search(r'^\s*class (CGameClient|CCollision|IClient|CCharacterCore)\s+size\(',line)
+                  if m:current=m.group(1);private.setdefault(current,{})
+                  m=re.search(r'^\s*(\d+)\s*\|\s+(?!\|)(?:.*\s)?(m_\w+)\s*$',line)
+                  if m and current:private[current][m.group(2)]=int(m.group(1))
+              required={'CGameClient':['m_pClient','m_pConfig','m_Collision','m_aTuningList'],
+                        'CCollision':['m_pLayers','m_Width','m_Height','m_pTiles','m_pFront'],
+                        'IClient':['m_State','m_aCurGameTick','m_aPredTick'],
+                        'CCharacterCore':['m_pWorld','m_pCollision','m_HookedPlayer']}
+              for typ,names in required.items():
+                  for member in names:assert member in private.get(typ,{}),(typ,member,private.get(typ))
+              metadata={'kind':'pinned-source-layout-candidate-NOT-validated-physics-adapter',
+                        'source_commit':'cf192e3fb8590dbe2e4f66a191aa6616beff6975',
+                        'defines':['CONF_AUTOUPDATE','CONF_DISCORD','CONF_DISCORD_DYNAMIC','CONF_VIDEORECORDER','_ITERATOR_DEBUG_LEVEL=0'],
+                        'public':public,'private':private,'runtime_validated':False,'automatic_avoid_enabled':False}
+              (work/'public-full-layout.json').write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
+              compact=json.dumps(metadata,separators=(',',':'))
+              for n in range(0,len(compact),3300):
+                  print('::notice title=full-source-layout-'+str(n//3300)+'::'+compact[n:n+3300].replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+              # An owned test server from exactly the pinned PUBLIC source; not the official client.
+              # Do not use this binary to replace a user's client or to claim official authorization.
+              command(['rustc','--version'],'rust-version',30)
+              command(['cargo','--version'],'cargo-version',30)
+              args=['cmake','-S',upstream,'-B',work/'server','-A','x64',
+                    '-DCLIENT=OFF','-DSERVER=ON','-DTOOLS=OFF','-DDOWNLOAD_GTEST=OFF',
+                    '-DSTEAM=OFF','-DDISCORD=OFF','-DVIDEORECORDER=OFF','-DVULKAN=OFF',
+                    '-DMYSQL=OFF','-DUPNP=OFF','-DPREFER_BUNDLED_LIBS=ON']
+              command(args,'server-configure')
+              command(['cmake','--build',work/'server','--config','Release','--target','game-server','--parallel','2'],'server-build',720)
+              assert (work/'server/Release/DDNet-Server.exe').is_file()
+              print('::notice title=owned-server-built::Pinned public server compile exit0; no private client code, no official badge claim')
+          except BaseException:
+              import traceback
+              from pathlib import Path
+              text=traceback.format_exc().replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print('::error title=owned-acquisition-error::'+text[:3300])
+              for name in ['owned-server.log','owned-client.log']:
+                  p=Path('build-owned-acquisition')/name
+                  if p.exists():
+                      text=p.read_text(encoding='utf-8',errors='replace')[-3000:]
+                      print('::notice title='+name+'-failure-tail::'+text.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+              raise
+      - name: Read-only official client on owned freeze map (no game input or patches)
+        shell: python
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          try:
+              import base64, ctypes, hashlib, io, json, math, os, socket, struct, subprocess, time, urllib.request, zipfile
+              from ctypes import wintypes as w
+              from pathlib import Path
+              from runtime_owned_map import owned_freeze_map
+
+              work=Path('build-owned-acquisition').resolve()
+              metadata=json.loads((work/'public-full-layout.json').read_text(encoding='utf-8'))
+              layout=metadata['public'];private=metadata['private']
+              assert layout['constant_MAX_CLIENTS']==128 and layout['constant_NUM_DUMMIES']==2
+              assert layout['sizeof_CGameClient']==11064576
+              repo=os.environ['GITHUB_REPOSITORY'];headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','User-Agent':'Malinka-owned-readonly-acquisition'}
+              def get_json(url):
+                  with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=60) as f:
+                      data=f.read(2*1024*1024+1)
+                  assert len(data)<=2*1024*1024
+                  return json.loads(data)
+              # The EXACT independently runtime-checked helper is reused, not a relabeled new build.
+              # Source0695e01 includes both fresh-save identity guard and measured Mumble-128 parser fix.
+              blob=get_json('https://api.github.com/repos/'+repo+'/git/blobs/ea223961ce5f6166aa086017a4361c20e0d5b5c9')
+              helper_zip=base64.b64decode(blob['content'])
+              assert len(helper_zip)==214977 and hashlib.sha256(helper_zip).hexdigest()=='908342745c580745f78f60816193e9e3baa6261d4c2105c11cdc9b81287e8055'
+              with zipfile.ZipFile(io.BytesIO(helper_zip)) as z:
+                  assert z.testzip() is None;helper_exe=z.read('MalinkaHelper.exe')
+              assert hashlib.sha256(helper_exe).hexdigest()=='e3927d1dc639bb3449ac6343883ceb70020381b39f17c38a2ed502fc25fa6ced'
+              helper=work/'MalinkaHelper.exe';helper.write_bytes(helper_exe)
+              asset=get_json('https://api.github.com/repos/BestProjectTeam/BestClient/releases/assets/730984669')
+              assert asset['size']==65165594 and asset['name']=='BestClient-windows.zip'
+              with urllib.request.urlopen(asset['browser_download_url'],timeout=90) as f:release=f.read(asset['size']+1)
+              assert len(release)==asset['size'] and hashlib.sha256(release).hexdigest()=='51688c041453d989522658cf46ae21b08ef46b28786da204b82e46c5166d7059'
+              client_dir=work/'official';client_dir.mkdir(exist_ok=False)
+              with zipfile.ZipFile(io.BytesIO(release)) as z:
+                  assert len(z.infolist())<=20000 and sum(i.file_size for i in z.infolist())<=512*1024*1024
+                  for i in z.infolist():assert (client_dir/i.filename).resolve().is_relative_to(client_dir),i.filename
+                  z.extractall(client_dir)
+              game=client_dir/'bestclient-3.1.1-win64/DDNet.exe';image=game.read_bytes();image_sha=hashlib.sha256(image).hexdigest()
+              assert image_sha=='50430c5f1081863b956fd5f0d8e1c6b88d1aa27f79e199c4053e86a5b632902f'
+              # Decode measured RIP-relative LEA and .pdata ranges, without assigning vtable method names.
+              pe=struct.unpack_from('<I',image,60)[0];opt=pe+24;sections=[]
+              for n in range(struct.unpack_from('<H',image,pe+6)[0]):
+                  at=opt+struct.unpack_from('<H',image,pe+20)[0]+n*40
+                  sections.append((image[at:at+8].split(b'\0')[0].decode('ascii'),*struct.unpack_from('<4I',image,at+8)))
+              text=next(s for s in sections if s[0]=='.text');pdata=next(s for s in sections if s[0]=='.pdata')
+              # section tuple: name, virtual_size, RVA, raw_size, raw_offset
+              xref_rva=5709343;xref_raw=text[4]+xref_rva-text[2]
+              assert image[xref_raw:xref_raw+3]==b'\x48\x8d\x05'
+              assert xref_rva+7+struct.unpack_from('<i',image,xref_raw+3)[0]==19904440
+              ranges=[struct.unpack_from('<3I',image,at) for at in range(pdata[4],pdata[4]+pdata[1]-11,12)]
+              functions=[(a,b,c)for a,b,c in ranges if a<=xref_rva<b]
+              assert len(functions)==1
+              begin,end,unwind=functions[0]
+              callers=[]
+              code=image[text[4]:text[4]+text[3]]
+              for i in range(len(code)-5):
+                  if code[i]==0xe8 and text[2]+i+5+struct.unpack_from('<i',code,i+1)[0]==begin:
+                      start=max(0,i-96);finish=min(len(code),i+112)
+                      callers.append({'call_rva':text[2]+i,'snippet_rva':text[2]+start,'snippet_hex':code[start:finish].hex()})
+                      assert len(callers)<=32
+              static={'kind':'exact-image-static-root-construction-evidence','sha256':image_sha,
+                      'vtable_write_rva':xref_rva,'vtable_write_file_offset':xref_raw,
+                      'pdata_function_begin_rva':begin,'pdata_function_end_rva':end,'unwind_rva':unwind,'callers':callers}
+              (work/'static-construction.json').write_text(json.dumps(static,indent=2)+'\n',encoding='utf-8')
+              for n,item in enumerate(callers):print('::notice title=static-root-caller-'+str(n)+'::'+json.dumps(item,separators=(',',':')))
+
+              map_data,geometry=owned_freeze_map(Path('upstream/data/maps/dm1.map').read_bytes(),layout)
+              assert geometry['base_dm1_sha256']=='0b0c481d77519c32fbe85624ef16ec0fa9991aec7367ad538bd280f28d8c26cf'
+              map_name='MalinkaOwnedFreeze-'+os.environ['GITHUB_RUN_ID']
+              map_file=work/'server/data/maps'/(map_name+'.map');assert not map_file.exists()
+              with map_file.open('xb') as f:f.write(map_data)
+              (work/'owned-map-geometry.json').write_text(json.dumps(geometry,indent=2)+'\n',encoding='utf-8')
+
+              k=ctypes.WinDLL('kernel32',use_last_error=True);u=ctypes.WinDLL('user32',use_last_error=True)
+              k.OpenProcess.argtypes=[w.DWORD,w.BOOL,w.DWORD];k.OpenProcess.restype=w.HANDLE
+              k.CloseHandle.argtypes=[w.HANDLE];k.CloseHandle.restype=w.BOOL
+              k.ReadProcessMemory.argtypes=[w.HANDLE,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_size_t,ctypes.POINTER(ctypes.c_size_t)];k.ReadProcessMemory.restype=w.BOOL
+              k.GetProcessTimes.argtypes=[w.HANDLE,*([ctypes.POINTER(w.FILETIME)]*4)];k.GetProcessTimes.restype=w.BOOL
+              k.WaitForSingleObject.argtypes=[w.HANDLE,w.DWORD];k.WaitForSingleObject.restype=w.DWORD
+              k.CreateFileMappingW.argtypes=[w.HANDLE,ctypes.c_void_p,w.DWORD,w.DWORD,w.DWORD,w.LPCWSTR];k.CreateFileMappingW.restype=w.HANDLE
+              k.MapViewOfFile.argtypes=[w.HANDLE,w.DWORD,w.DWORD,w.DWORD,ctypes.c_size_t];k.MapViewOfFile.restype=ctypes.c_void_p
+              k.UnmapViewOfFile.argtypes=[ctypes.c_void_p];k.UnmapViewOfFile.restype=w.BOOL
+              u.GetWindowThreadProcessId.argtypes=[w.HWND,ctypes.POINTER(w.DWORD)];u.PostMessageW.argtypes=[w.HWND,w.UINT,w.WPARAM,w.LPARAM]
+              CB=ctypes.WINFUNCTYPE(w.BOOL,w.HWND,w.LPARAM);u.EnumWindows.argtypes=[CB,w.LPARAM]
+              link=k.CreateFileMappingW(ctypes.c_void_p(-1),None,4,0,5460,'MumbleLink');assert link
+              view=k.MapViewOfFile(link,4,0,0,5460);assert view
+
+              def mumble():
+                  for unused in range(3):
+                      a=ctypes.string_at(view,5460);b=ctypes.string_at(view,5460)
+                      if a!=b:continue
+                      version,tick=struct.unpack_from('<2I',a)
+                      if version!=2:return {'status':'not_v2','version':version}
+                      length=struct.unpack_from('<I',a,1104)[0]
+                      if length==0:return {'status':'offline','tick':tick}
+                      if length>=256 or a[1108+length]!=0:return {'status':'invalid_context'}
+                      try:
+                          name=a[44:556].decode('utf-16le').split('\0',1)[0]
+                          if name!='DDNet':return {'status':'invalid_writer_name'}
+                          identity=a[592:1104].decode('utf-16le').split('\0',1)[0]
+                          context=a[1108:1108+length].decode('ascii')
+                      except UnicodeError:return {'status':'invalid_text'}
+                      if not identity.isascii() or not identity.isdigit() or len(identity)>3 or str(int(identity))!=identity or not 0<=int(identity)<layout['constant_MAX_CLIENTS']:return {'status':'invalid_identity'}
+                      x,y=struct.unpack_from('<f',a,8)[0]*128,struct.unpack_from('<f',a,16)[0]*128
+                      if not all(math.isfinite(v) for v in [x,y]):return {'status':'invalid_position'}
+                      return {'status':'render_only','tick':tick,'client_id':int(identity),'context':context,'pos':[x,y]}
+                  return {'status':'changing'}
+
+              class ReadFailure(RuntimeError):pass
+              class Reader:
+                  def __init__(self,pid,creation):
+                      # PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE only.
+                      self.h=k.OpenProcess(0x1000|0x10|0x100000,False,pid)
+                      if not self.h:raise ReadFailure('OpenProcess read-only '+str(ctypes.get_last_error()))
+                      try:
+                          times=[w.FILETIME() for unused in range(4)]
+                          if not k.GetProcessTimes(self.h,*[ctypes.byref(v) for v in times]):raise ReadFailure('GetProcessTimes')
+                          measured=(times[0].dwHighDateTime<<32)|times[0].dwLowDateTime
+                          if measured!=creation:raise ReadFailure('PID creation-time mismatch')
+                      except BaseException:
+                          self.close();raise
+                  def close(self):
+                      if self.h:k.CloseHandle(self.h);self.h=None
+                  def read(self,address,length):
+                      if not (0x10000<=address<=0x7fffffffffff and 0<length<=65536 and length-1<=0x7fffffffffff-address):raise ReadFailure('range')
+                      data=ctypes.create_string_buffer(length);actual=ctypes.c_size_t()
+                      if not k.ReadProcessMemory(self.h,ctypes.c_void_p(address),data,length,ctypes.byref(actual)) or actual.value!=length:raise ReadFailure('failed or partial read')
+                      return data.raw
+                  def i(self,at):return struct.unpack('<i',self.read(at,4))[0]
+                  def q(self,at):return struct.unpack('<Q',self.read(at,8))[0]
+                  def vec(self,at):
+                      v=struct.unpack('<2f',self.read(at,8))
+                      if not all(math.isfinite(x) and abs(x)<=1e9 for x in v):raise ReadFailure('finite vec')
+                      return list(v)
+
+              def core_values(data):
+                  def integer(member):return struct.unpack_from('<i',data,layout['CCharacterCore.'+member])[0]
+                  def vec(member):
+                      v=struct.unpack_from('<2f',data,layout['CCharacterCore.'+member])
+                      if not all(math.isfinite(x) and abs(x)<=1e9 for x in v):raise ReadFailure('finite core vec')
+                      return list(v)
+                  result={'id':integer('m_Id'),'pos':vec('m_Pos'),'vel':vec('m_Vel'),'hook_pos':vec('m_HookPos'),'hook_state':integer('m_HookState'),
+                          'freeze_start':integer('m_FreezeStart'),'freeze_end':integer('m_FreezeEnd')}
+                  for member,key in [('m_IsInFreeze','in_freeze'),('m_DeepFrozen','deep_frozen'),('m_LiveFrozen','live_frozen')]:
+                      value=data[layout['CCharacterCore.'+member]]
+                      if value not in [0,1]:raise ReadFailure('noncanonical core bool')
+                      result[key]=bool(value)
+                  result['gravity_raw']=struct.unpack_from('<i',data,layout['CCharacterCore.m_Tuning']+layout['CTuningParams.m_Gravity'])[0]
+                  return result
+
+              def sample(reader,root,module):
+                  if k.WaitForSingleObject(reader.h,0)!=258:raise ReadFailure('owned client exited')
+                  if reader.q(root)!=module+19904440:raise ReadFailure('root vtable changed')
+                  engine=reader.q(root+private['CGameClient']['m_pClient']);config=reader.q(root+private['CGameClient']['m_pConfig'])
+                  state=reader.i(engine+private['IClient']['m_State']);result={'state':state,'mumble':mumble()}
+                  if state!=layout['constant_IClient::STATE_ONLINE']:return result
+                  dummy=reader.i(config+layout['CConfig.m_ClDummy'])
+                  if not 0<=dummy<2:raise ReadFailure('dummy range')
+                  local=reader.i(root+layout['CGameClient.m_Snap']+layout['CGameClient::CSnapState.m_LocalClientId'])
+                  if not 0<=local<layout['constant_MAX_CLIENTS']:return dict(result,local_id=local,character='not_ready')
+                  ids=list(struct.unpack('<2i',reader.read(root+layout['CGameClient.m_aLocalIds'],8)))
+                  cur_at=engine+private['IClient']['m_aCurGameTick']+dummy*4
+                  pred_at=engine+private['IClient']['m_aPredTick']+dummy*4
+                  tick=reader.i(cur_at);pred=reader.i(pred_at)
+                  world=root+layout['CGameClient.m_PredictedWorld'];world_core=world+layout['CGameWorld.m_Core']
+                  world_tick=reader.i(world+layout['CGameWorld.m_GameTick'])
+                  local_core=reader.q(world_core+layout['CWorldCore.m_apCharacters']+local*8)
+                  collision=root+private['CGameClient']['m_Collision'];width=reader.i(collision+private['CCollision']['m_Width']);height=reader.i(collision+private['CCollision']['m_Height'])
+                  if width!=geometry['width'] or height!=geometry['height']:return dict(result,local_id=local,character='unexpected_map_dimensions',dimensions=[width,height])
+                  core_data=reader.read(local_core,layout['sizeof_CCharacterCore']);core=core_values(core_data)
+                  client_data=root+layout['CGameClient.m_aClients']+local*layout['sizeof_CGameClient::CClientData']
+                  copy=core_values(reader.read(client_data+layout['CGameClient::CClientData.m_Predicted'],layout['sizeof_CCharacterCore']))
+                  char_at=root+layout['CGameClient.m_Snap']+layout['CGameClient::CSnapState.m_aCharacters']+local*layout['sizeof_CGameClient::CSnapState::CCharacterInfo']
+                  active=reader.read(char_at+layout['CGameClient::CSnapState::CCharacterInfo.m_Active'],1)[0]
+                  extended=reader.read(char_at+layout['CGameClient::CSnapState::CCharacterInfo.m_HasExtendedData'],1)[0]
+                  if active not in [0,1] or extended not in [0,1]:raise ReadFailure('character bool')
+                  network=char_at+layout['CGameClient::CSnapState::CCharacterInfo.m_Cur']
+                  snapped={member:reader.i(network+layout['CNetObj_Character.'+member]) for member in ['m_Tick','m_X','m_Y','m_VelX','m_VelY','m_HookState','m_HookedPlayer']}
+                  freeze_end=reader.i(char_at+layout['CGameClient::CSnapState::CCharacterInfo.m_ExtendedData']+layout['CNetObj_DDNetCharacter.m_FreezeEnd']) if extended else None
+                  render=reader.vec(client_data+layout['CGameClient::CClientData.m_RenderPos'])
+                  tiles=reader.q(collision+private['CCollision']['m_pTiles'])
+                  x=geometry['spawn_tile'][0];fy=geometry['freeze_rows'][0];gy=geometry['ground_row']
+                  freeze_tile=reader.read(tiles+(fy*width+x)*layout['sizeof_CTile']+layout['CTile.m_Index'],1)[0]
+                  ground_tile=reader.read(tiles+(gy*width+x)*layout['sizeof_CTile']+layout['CTile.m_Index'],1)[0]
+                  checks={'local_id_matches_selected_dummy':ids[dummy]==local,'core_id_matches_local':core['id']==local,
+                          'core_world_backlink':struct.unpack_from('<Q',core_data,private['CCharacterCore']['m_pWorld'])[0]==world_core,
+                          'core_collision_backlink':struct.unpack_from('<Q',core_data,private['CCharacterCore']['m_pCollision'])[0]==collision,
+                          'world_tick_matches_prediction':world_tick==pred,
+                          'client_copy_matches_world_pos_vel':copy['pos']==core['pos'] and copy['vel']==core['vel'],
+                          'same_ticks_before_after':(tick,pred,world_tick)==(reader.i(cur_at),reader.i(pred_at),reader.i(world+layout['CGameWorld.m_GameTick'])),
+                          'freeze_tile_matches':freeze_tile==layout['constant_TILE_FREEZE'],'ground_tile_matches':ground_tile==layout['constant_TILE_SOLID'],
+                          'gravity_matches_explicit_fixture_tune':core['gravity_raw']==50,
+                          'active_character':active==1,'spawn_x_matches':abs(core['pos'][0]-geometry['spawn_center'][0])<1.0}
+                  if result['mumble'].get('status')=='render_only':
+                      checks['render_matches_mumble']=all(abs(a-b)<=.01 for a,b in zip(render,result['mumble']['pos']))
+                      checks['mumble_id_matches_local']=result['mumble']['client_id']==local
+                  result.update({'character':'measured_candidate_only','local_id':local,'dummy':dummy,'local_ids':ids,'tick':tick,'prediction_tick':pred,'world_tick':world_tick,
+                                 'core':core,'network':snapped,'network_freeze_end':freeze_end,'render':render,'checks':checks})
+                  return result
+
+              server_log=work/'owned-server.log';client_log=work/'owned-client.log'
+              with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sock:
+                  sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+              server_args=['bindaddr 127.0.0.1','sv_port '+str(port),'sv_register 0','sv_name Malinka-owned-readonly-fixture','sv_map '+map_name,'tune gravity 0.5']
+              client_args=['cl_save_settings 0','gfx_fullscreen 0','gfx_backend OpenGL','gfx_gl_major 1','gfx_gl_minor 1','snd_enable 0','cl_show_welcome 0','connect 127.0.0.1:'+str(port)]
+              report={'kind':'owned-official-local-map-readonly-acquisition-NOT-complete-Avoid','source_commit':metadata['source_commit'],'image_sha256':image_sha,'layout':metadata,
+                      'map':geometry,'server_arguments':server_args,'client_arguments':client_args,'input_sent':False,'writes_process_memory':False,'injects_dll':False,
+                      'physics_adapter_validated':False,'automatic_avoid_enabled':False,'atomic_snapshot_guaranteed':False,'samples':[],'read_failures':0,'root_reports':[]}
+              reader=None;server=None;client=None
+              with server_log.open('wb') as sl,client_log.open('wb') as cl:
+                  try:
+                      server=subprocess.Popen([str(work/'server/Release/DDNet-Server.exe'),*server_args],cwd=work/'server',stdin=subprocess.PIPE,stdout=sl,stderr=subprocess.STDOUT)
+                      time.sleep(2)
+                      assert server.poll() is None,'owned server exited before client launch'
+                      client=subprocess.Popen([str(game),*client_args],cwd=game.parent,stdout=cl,stderr=subprocess.STDOUT)
+                      started=time.monotonic();deadline=started+40;next_scan=started;first_online=None;root=None;module=None
+                      for iteration in range(1800):
+                          now=time.monotonic()
+                          if now>=deadline or client.poll() is not None:break
+                          if root is None and now>=next_scan:
+                              file=work/('root-'+str(len(report['root_reports']))+'.json')
+                              exit_code=subprocess.run([str(helper),'--pid',str(client.pid),'--report',str(file)],timeout=20).returncode
+                              if file.exists():
+                                  current=json.loads(file.read_text(encoding='utf-8'));report['root_reports'].append(current)
+                                  proc=current.get('process') or {};candidates=proc.get('root_scan',{}).get('candidate_runtime_vas',[])
+                                  if exit_code==0 and current['file']['recognized_public_release'] and proc.get('loaded_vtable_matches') and len(candidates)==1:
+                                      reader=Reader(client.pid,proc['creation_time_100ns']);root=int(candidates[0],16);module=int(proc['module_base_runtime_va'],16)
+                              next_scan=time.monotonic()+1
+                          if reader:
+                              try:
+                                  current=sample(reader,root,module);current['elapsed_ms']=round((time.monotonic()-started)*1000)
+                                  report['samples'].append(current)
+                                  if current.get('character')=='measured_candidate_only':
+                                      if first_online is None:first_online=time.monotonic()
+                                      if time.monotonic()-first_online>=15:break
+                              except ReadFailure as error:
+                                  report['read_failures']+=1
+                                  if report['read_failures']<=10:report.setdefault('read_errors',[]).append(str(error))
+                          time.sleep(.03)
+                      report['elapsed_ms']=round((time.monotonic()-started)*1000)
+                  finally:
+                      if reader:reader.close()
+                      if client and client.poll() is None:
+                          @CB
+                          def close_client(hwnd,unused):
+                              pid=w.DWORD();u.GetWindowThreadProcessId(hwnd,ctypes.byref(pid))
+                              if pid.value==client.pid:u.PostMessageW(hwnd,0x0010,0,0)
+                              return True
+                          u.EnumWindows(close_client,0)
+                          try:client.wait(timeout=8)
+                          except subprocess.TimeoutExpired:client.terminate();client.wait(timeout=10);report['owned_client_forced_stop']=True
+                      if server and server.poll() is None:
+                          try:server.stdin.write(b'shutdown\n');server.stdin.flush();server.wait(timeout=8)
+                          except (OSError,subprocess.TimeoutExpired):server.terminate();server.wait(timeout=10);report['owned_server_forced_stop']=True
+                      k.UnmapViewOfFile(view);k.CloseHandle(link)
+              report['client_exit']=client.returncode if client else None;report['server_exit']=server.returncode if server else None
+              assert hashlib.sha256(game.read_bytes()).hexdigest()==image_sha
+              report['official_exe_unchanged']=True
+              report['server_log_tail']=server_log.read_text(encoding='utf-8',errors='replace')[-12000:]
+              report['client_log_tail']=client_log.read_text(encoding='utf-8',errors='replace')[-12000:]
+              frames=[s for s in report['samples'] if s.get('character')=='measured_candidate_only']
+              check_names=sorted({key for frame in frames for key in frame['checks']})
+              summary={'kind':report['kind'],'frames_measured':len(frames),'total_samples':len(report['samples']),'read_failures':report['read_failures'],
+                       'invariant_pass_counts':{key:sum(frame['checks'].get(key,False) for frame in frames) for key in check_names},
+                       'network_frozen_frames':sum(s['network_freeze_end'] is not None and s['network_freeze_end']>s['tick'] for s in frames),
+                       'core_in_freeze_frames':sum(s['core']['in_freeze'] for s in frames),
+                       'core_freeze_end_positive_frames':sum(s['core']['freeze_end']>s['tick'] for s in frames),
+                       'min_y':min((s['core']['pos'][1]for s in frames),default=None),'max_y':max((s['core']['pos'][1]for s in frames),default=None),
+                       'official_exe_unchanged':True,'client_exit':report['client_exit'],'server_exit':report['server_exit'],
+                       'physics_adapter_validated':False,'atomic_snapshot_guaranteed':False,'input_sent':False,'automatic_avoid_enabled':False}
+              report['summary']=summary
+              payload=json.dumps(report,separators=(',',':'),allow_nan=False).encode('utf-8');assert len(payload)<=2*1024*1024
+              (work/'owned-runtime-report.json').write_bytes(payload)
+              request=urllib.request.Request('https://api.github.com/repos/'+repo+'/git/blobs',data=json.dumps({'encoding':'base64','content':base64.b64encode(payload).decode('ascii')}).encode(),method='POST',headers={**headers,'Content-Type':'application/json'})
+              with urllib.request.urlopen(request,timeout=60) as f:created=json.load(f)
+              summary['transport_blob_sha']=created['sha'];summary['report_bytes']=len(payload);summary['report_sha256']=hashlib.sha256(payload).hexdigest()
+              (work/'owned-runtime-summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
+              print('::notice title=owned-runtime-summary::'+json.dumps(summary,separators=(',',':')))
+              if not frames:print('::warning title=owned-runtime-no-frames::'+(report['client_log_tail'][-2000:]+'\n'+report['server_log_tail'][-1200:]).replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+          except BaseException:
+              import traceback
+              from pathlib import Path
+              text=traceback.format_exc().replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print('::error title=owned-acquisition-error::'+text[:3300])
+              for name in ['owned-server.log','owned-client.log']:
+                  p=Path('build-owned-acquisition')/name
+                  if p.exists():
+                      text=p.read_text(encoding='utf-8',errors='replace')[-3000:]
+                      print('::notice title='+name+'-failure-tail::'+text.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+              raise
+      - name: Keep bounded acquisition metadata and logs (no official binaries)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: owned-official-readonly-acquisition-not-Avoid
+          path: |
+            build-owned-acquisition/*.json
+            build-owned-acquisition/*.log
+            build-owned-acquisition/*.exit
+          retention-days: 7
+          if-no-files-found: warn
