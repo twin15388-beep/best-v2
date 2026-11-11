@@ -3,9 +3,9 @@ name: Malinka native builds
 on:
   push:
     branches: [main, "arena/**"]
-    paths-ignore: ["docs/**", "README.md", "HANDOFF.md"]
+    paths-ignore: ["docs/**", "README.md", "HANDOFF.md", "tools/malinka-helper/**", ".github/workflows/malinka-companion-*.yml"]
   pull_request:
-    paths-ignore: ["docs/**", "README.md", "HANDOFF.md"]
+    paths-ignore: ["docs/**", "README.md", "HANDOFF.md", "tools/malinka-helper/**", ".github/workflows/malinka-companion-*.yml"]
   workflow_dispatch:
 
 permissions:

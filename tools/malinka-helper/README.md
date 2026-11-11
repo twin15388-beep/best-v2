@@ -1,0 +1,65 @@
+# MalinkaHelper 0.1.0-diagnostic (Windows x64)
+
+**Это отдельная диагностика для внешнего помощника, НЕ работающий Avoid Freeze.** Автоматического управления здесь ещё нет. Не заменяет ранее выданный экспериментальный клиент 0.1.1 и не выполняет весь первоначальный запрос.
+
+## Что сделано
+
+- Независимая Windows-программа с собственным окном и переключателем «Поверх окон». Не компонент и не DLL игры.
+- По явному нажатию запускает выбранный неизменённый EXE, без дополнительных команд/конфигов. Закрытие помощника не закрывает игру.
+- Читает fingerprint файла и PE-заголовки выбранного PID. Права: `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE`. Нет debug privilege, записи в процесс, remote threads, hooks и отправки клавиш.
+- Только для **точного SHA-256** отдельно исследованного публичного official EXE проверяет ASLR-adjusted vtable и выполняет ограниченный поиск кандидатов `CGameClient`. Это **не проверенные персонаж/физика**. Иная сборка, в том числе с такой же строкой версии, явно блокируется.
+- Принимает штатную Mumble Link render-телеметрию. Собственный view — `FILE_MAP_READ`. Если секции нет, создаёт стандартную `MumbleLink` до запуска клиента; её заполняет сам клиент. Полноценный Mumble устанавливать не нужно.
+- JSON-отчёт — только по вашему выбору, под новым именем и вне папки исследуемого клиента. Не меняет EXE/DLL/config/storage.cfg. Обычные собственные сохранения настроек самой игрой не отключаются.
+
+**Нет** подтверждённых offset полей персонажа, collision/map/tuning/input adapter; они записываются как `null`, не как выдуманные нули. Автоматический Avoid всегда `BLOCKED`. Официальный внешний badge со второго клиента не проверен и не подменяется.
+
+## Использование
+
+1. Распакуйте помощника **в отдельную папку вне папки официального клиента**. Не копируйте ничего поверх игры.
+2. Запустите `MalinkaHelper.exe` обычным пользователем. Выберите настоящий клиент, затем «Запустить клиент». Для уже запущенного клиента введите его PID из Диспетчера задач и нажмите «Проверить PID ещё раз».
+3. Для Mumble Link секция должна существовать при инициализации клиента. Если клиент уже работал, в его F1 можно выполнить штатную `mumble_reconnect`. Это не команда этого fork и не запись произвольного кода в процесс. Её наличие в конкретной сборке пока нужно подтвердить. Если команды нет, не используйте случайные адреса.
+4. После подключения к карте повторите проверку PID. «Сохранить новый отчёт» создаёт только диагностический JSON вне папки игры. Существующие отчёты не заменяются.
+
+`Mumble Link: live_diagnostic` означает лишь, что наблюдались изменения счётчика render-телеметрии. Это **не physics tick**. Координаты `(avatar[0], avatar[2]) * 128` взяты из pinned upstream writer. ABI не содержит PID автора, velocities, hook state, collision, map hash и не является seqlock; даже две одинаковые копии не доказывают согласованный physics snapshot. При >250 ms без tick advance показания помечаются stale. На них нельзя строить доказанно точный автоматический Avoid.
+
+### CLI (PowerShell)
+
+Команды завершаются после одного диагностического прохода; GUI-subsystem приложение следует запускать с ожиданием:
+
+```powershell
+$p = Start-Process -FilePath .\MalinkaHelper.exe -ArgumentList '--inspect-file "C:\Games\BestClient\DDNet.exe" --report "C:\Reports\best-image-new.json"' -Wait -PassThru
+$p.ExitCode
+$p = Start-Process -FilePath .\MalinkaHelper.exe -ArgumentList '--pid 1234 --report "C:\Reports\best-process-new.json"' -Wait -PassThru
+$p.ExitCode
+```
+
+Папка отчётов должна уже существовать. PID `1234` в примере заменить реальным PID, не адресом. Коды: `0` — диагностика завершилась (не «Avoid работает»); `2` — неверные аргументы; `3` — отказ записи нового отчёта; `4` — ошибка исследования, описанная в записанном отчёте; `5` — ошибка GUI/неожиданная ошибка.
+
+## Точная область публичного профиля
+
+- Источник: BestProjectTeam/BestClient tag `v3.1.1`, commit `cf192e3fb8590dbe2e4f66a191aa6616beff6975`.
+- GitHub release asset `730984669`, `BestClient-windows.zip`, 65165594 bytes; SHA-256 `51688c041453d989522658cf46ae21b08ef46b28786da204b82e46c5166d7059`.
+- В нём `bestclient-3.1.1-win64/DDNet.exe`, 26206720 bytes; SHA-256 `50430c5f1081863b956fd5f0d8e1c6b88d1aa27f79e199c4053e86a5b632902f`.
+- PE AMD64, `SizeOfImage=50638848`. RTTI/vtable fingerprint измерен в CI43002224833, check130460886361. Константы централизованы в `core.h`, включая file offset/RVA. Runtime VA вычисляется только от измеренной module base. Имена виртуальных методов по индексам не предполагаются.
+- Полная публичная acquisition metadata — `provenance/public-3.1.1-image.json`. **Совпадение с ранее присланным Dropbox архивом НЕ установлено.** Нет PDB/debug files в исследованном asset. Это не автоматическая поддержка всех BestClient 3.1.1/новых обновлений.
+
+## Сборка (независимая от игрового клиента)
+
+Windows 11 x64, Visual Studio 2022 Desktop development with C++, Windows SDK, CMake >=3.24. C++20, MSVC `/W4 /WX /permissive- /utf-8`, static MSVC runtime. Внешних библиотек/SDK игры, Python, Rust, DLL-инъекторов для сборки помощника не требуется.
+
+Из корня репозитория:
+
+```powershell
+cmake -S tools/malinka-helper -B build/malinka-helper -A x64
+cmake --build build/malinka-helper --config Release --parallel 2
+```
+
+Для вложенного standalone `source/` из доставленного ZIP: `cmake -S source -B build -A x64`, затем `cmake --build build --config Release --parallel 2`. Результат `Release/MalinkaHelper.exe` в соответствующей build-папке. Linux собирает **только portable core**, не Windows GUI.
+
+Изменения game-client, official update channel/authorization и EXE игры не входят в этот проект. Не запускать помощника с повышенными правами ради обхода отказа чтения. На неизвестной сборке правильное поведение — блокировка.
+
+## Что нужно до реального Avoid
+
+Получить точный fingerprint реально используемой официальной сборки; восстановить layout из соответствующих public headers/compiler или symbols; затем подтвердить его **на живой карте** по независимым наблюдениям position/velocity/local ID/dummy/freeze/tick. Получать цельный ограниченный snapshot map/tuning/collision и сбрасывать его при смене карты/сессии. После этого реализовать независимую симуляцию и обычный ввод с проверкой focus/клавиш, watchdog/release и compare-to-baseline на freeze-картах. Нельзя считать найденный vtable pointer или render-координаты этим подтверждением.
+
+**not verified in-game.** Сборка и isolated checks отдельно документируются; они не доказывают gameplay или настоящий badge.

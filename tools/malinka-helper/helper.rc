@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: MIT
+#include <windows.h>
+#ifdef __MINGW32__
+1 RT_MANIFEST "helper.manifest"
+#endif
+1 VERSIONINFO
+ FILEVERSION 0,1,0,0
+ PRODUCTVERSION 0,1,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS VS_FF_PRERELEASE
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "040904B0"
+  BEGIN
+   VALUE "FileDescription", "MalinkaHelper diagnostics - NOT functional Avoid Freeze\0"
+   VALUE "FileVersion", "0.1.0-diagnostic\0"
+   VALUE "ProductName", "MalinkaHelper\0"
+   VALUE "ProductVersion", "0.1.0-diagnostic\0"
+   VALUE "OriginalFilename", "MalinkaHelper.exe\0"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x0409, 1200
+ END
+END
