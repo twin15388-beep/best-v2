@@ -1,0 +1,133 @@
+# Disposable acquisition check for the external companion. No client is modified.
+name: Malinka companion official-image audit
+on:
+  push:
+    branches: ["arena/733fc6a9-best-v2"]
+    paths: [".github/workflows/malinka-companion-audit.yml"]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Inspect the public official v3.1.1 release (not the supplied Dropbox archive)
+        shell: python
+        run: |
+          import hashlib, io, json, struct, urllib.request, zipfile
+          from pathlib import Path
+
+          def get_json(url):
+              req = urllib.request.Request(url, headers={'User-Agent': 'Malinka-external-audit'})
+              with urllib.request.urlopen(req, timeout=45) as response:
+                  return json.load(response)
+
+          release = get_json('https://api.github.com/repos/BestProjectTeam/BestClient/releases/tags/v3.1.1')
+          asset, = [a for a in release['assets'] if a['id'] == 730984669 and a['name'] == 'BestClient-windows.zip']
+          assert 0 < asset['size'] <= 128 * 1024 * 1024
+          with urllib.request.urlopen(asset['browser_download_url'], timeout=90) as response:
+              data = response.read(asset['size'] + 1)
+          assert len(data) == asset['size']
+          report = {
+              'kind': 'official-public-image-audit', 'tag': release['tag_name'],
+              'source_commit': 'cf192e3fb8590dbe2e4f66a191aa6616beff6975',
+              'asset_id': asset['id'], 'asset_bytes': len(data),
+              'asset_sha256': hashlib.sha256(data).hexdigest(),
+              'supplied_dropbox_equivalence': 'NOT established', 'images': [],
+          }
+          archive = zipfile.ZipFile(io.BytesIO(data))
+          assert len(archive.infolist()) <= 30000
+          report['debug_files'] = [i.filename for i in archive.infolist() if i.filename.lower().endswith(('.pdb', '.dbg'))]
+          for entry in archive.infolist():
+              if not entry.filename.lower().endswith('/ddnet.exe') and entry.filename.lower() != 'ddnet.exe':
+                  continue
+              assert entry.file_size <= 128 * 1024 * 1024
+              image = archive.read(entry)
+              def u16(offset): return struct.unpack_from('<H', image, offset)[0]
+              def u32(offset): return struct.unpack_from('<I', image, offset)[0]
+              def u64(offset): return struct.unpack_from('<Q', image, offset)[0]
+              assert image[:2] == b'MZ'
+              pe = u32(60)
+              assert image[pe:pe+4] == b'PE\0\0'
+              assert u16(pe+4) == 0x8664
+              count, optsize, opt = u16(pe+6), u16(pe+20), pe+24
+              assert 1 <= count <= 96 and u16(opt) == 0x20b
+              base, size = u64(opt+24), u32(opt+56)
+              sections = []
+              for n in range(count):
+                  at = opt + optsize + n*40
+                  name = image[at:at+8].split(b'\0')[0].decode('ascii')
+                  vs, rva, rawsize, raw = [u32(at+d) for d in (8,12,16,20)]
+                  assert raw + rawsize <= len(image)
+                  sections.append(dict(name=name, rva=rva, virtual_size=vs, raw_offset=raw, raw_size=rawsize, characteristics=u32(at+36)))
+              def rva_of(raw):
+                  for s in sections:
+                      if s['raw_offset'] <= raw < s['raw_offset'] + s['raw_size']:
+                          return s['rva'] + raw - s['raw_offset']
+                  return None
+              def raw_of(rva):
+                  for s in sections:
+                      if s['rva'] <= rva < s['rva'] + s['raw_size']:
+                          return s['raw_offset'] + rva - s['rva']
+                  return None
+              def executable_va(va):
+                  rva = va-base
+                  return any(s['rva'] <= rva < s['rva'] + s['virtual_size'] and s['characteristics'] & 0x20000000 for s in sections)
+              item = dict(path=entry.filename, bytes=len(image), sha256=hashlib.sha256(image).hexdigest(), machine=u16(pe+4), timestamp=u32(pe+8), size_of_image=size, preferred_image_base=base, sections=sections, type_descriptors=[], complete_object_locators=[], primary_vtables=[])
+              needle, cursor = b'.?AVCGameClient@@\0', 0
+              while True:
+                  hit = image.find(needle, cursor)
+                  if hit < 0: break
+                  cursor = hit + len(needle)
+                  assert len(item['type_descriptors']) < 128
+                  td_raw, td_rva = hit-16, rva_of(hit-16)
+                  if td_rva is None: continue
+                  item['type_descriptors'].append(dict(file_offset=td_raw, rva=td_rva))
+                  pattern, pos, hits = struct.pack('<I', td_rva), 0, 0
+                  while True:
+                      match = image.find(pattern, pos)
+                      if match < 0: break
+                      pos, hits = match+1, hits+1
+                      assert hits <= 50000
+                      col_raw = match-12
+                      if col_raw < 0 or col_raw+24 > len(image): continue
+                      col_rva = rva_of(col_raw)
+                      sig, off, cd, typ, hierarchy, selfrva = struct.unpack_from('<6I', image, col_raw)
+                      if sig != 1 or off != 0 or cd != 0 or col_rva is None or selfrva != col_rva or raw_of(hierarchy) is None: continue
+                      item['complete_object_locators'].append(dict(file_offset=col_raw, rva=col_rva, type_descriptor_rva=typ, hierarchy_rva=hierarchy))
+                      locator_ptr, ptrpos, ptrhits = struct.pack('<Q', base+col_rva), 0, 0
+                      while True:
+                          ptr = image.find(locator_ptr, ptrpos)
+                          if ptr < 0: break
+                          ptrpos, ptrhits = ptr+1, ptrhits+1
+                          assert ptrhits <= 50000
+                          table_raw = ptr+8
+                          if table_raw+64 > len(image) or table_raw % 8: continue
+                          table_rva = rva_of(table_raw)
+                          first = list(struct.unpack_from('<8Q', image, table_raw))
+                          if table_rva is not None and all(executable_va(p) for p in first):
+                              item['primary_vtables'].append(dict(file_offset=table_raw, rva=table_rva, first_eight_function_rvas=[p-base for p in first]))
+              item['codeview'] = []
+              if optsize >= 112+7*8 and u32(opt+108) >= 7:
+                  debug_rva, debug_size = u32(opt+112+6*8), u32(opt+112+6*8+4)
+                  debug_raw = raw_of(debug_rva)
+                  if debug_raw is not None and debug_size <= 28*64 and debug_raw+debug_size <= len(image):
+                      for off in range(debug_raw,debug_raw+debug_size-27,28):
+                          if u32(off+12) != 2: continue
+                          length, raw = u32(off+16), u32(off+24)
+                          if 24 <= length <= 4096 and raw+length <= len(image) and image[raw:raw+4] == b'RSDS':
+                              path = image[raw+24:raw+length].split(b'\0')[0].decode('utf-8', 'replace').replace('\\','/').rsplit('/',1)[-1]
+                              item['codeview'].append(dict(guid_raw_hex=image[raw+4:raw+20].hex(), age=u32(raw+20), pdb_basename=path))
+              report['images'].append(item)
+          assert len(report['images']) == 1
+          Path('official-image-audit.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+          line = json.dumps(report, separators=(',',':'))
+          assert len(line) <= 50000
+          print('::notice title=official-pe-audit::' + line.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+      - name: Keep small public-image metadata (no EXE or archive)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: malinka-official-image-metadata
+          path: official-image-audit.json
+          retention-days: 7
+          if-no-files-found: error
