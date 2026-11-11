@@ -12,6 +12,9 @@ jobs:
     timeout-minutes: 20
     env:
       CARGO_HTTP_MULTIPLEXING: "false"
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -181,6 +184,31 @@ jobs:
                       text=p.read_text(encoding='utf-8',errors='replace')[-3000:]
                       print('::notice title='+name+'-failure-tail::'+text.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
               raise
+      - name: Build native Avoid reader for a separate observe-only live probe
+        shell: python
+        run: |
+          import subprocess
+          from pathlib import Path
+          upstream=Path('upstream').resolve()
+          build=Path('build-owned-acquisition/avoid-preview').resolve()
+          def command(args,name,timeout=720):
+              result=subprocess.run([str(arg) for arg in args],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,errors='replace',timeout=timeout)
+              log=Path('build-owned-acquisition')/('avoid-'+name+'.log')
+              log.write_text(result.stdout,encoding='utf-8')
+              if result.returncode:
+                  tail='\n'.join(result.stdout.splitlines()[-35:])
+                  print('::error title=avoid-'+name+'::'+tail.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+                  raise RuntimeError(name+' exited '+str(result.returncode))
+              print(result.stdout)
+              return result.stdout
+          command(['cmake','-S','tools/malinka-helper','-B',build,'-A','x64',
+                   '-DMALINKA_BUILD_AVOID_PREVIEW=ON','-DMALINKA_PINNED_SOURCE='+str(upstream)],'configure')
+          command(['cmake','--build',build,'--config','Release','--target','MalinkaAvoidPreview','--parallel','2'],'build')
+          exe=build/'Release'/'MalinkaAvoidPreview.exe'
+          assert exe.is_file()
+          result=command([exe,'--self-test-abi'],'abi-self-test',60)
+          assert 'native-abi-self-test=passed' in result
+          print('::notice title=avoid-preview-native-ready::Pinned MSVC x64 executable built; ABI self-check passed; no target process opened; no game input sent')
       - name: Read-only official client on owned freeze map (no game input or patches)
         shell: python
         env:
@@ -196,6 +224,8 @@ jobs:
               from runtime_owned_map import owned_freeze_map
 
               work=Path('build-owned-acquisition').resolve()
+              avoid_preview=work/'avoid-preview/Release/MalinkaAvoidPreview.exe'
+              assert avoid_preview.is_file(),'native observe-only preview executable is missing'
               metadata=json.loads((work/'public-full-layout.json').read_text(encoding='utf-8'))
               layout=metadata['public'];private=metadata['private']
               assert layout['constant_MAX_CLIENTS']==128 and layout['constant_NUM_DUMMIES']==2
@@ -412,8 +442,9 @@ jobs:
               client_args=['cl_save_settings 0','gfx_fullscreen 0','gfx_backend OpenGL','gfx_gl_major 1','gfx_gl_minor 1','cl_refresh_rate 120','gfx_refresh_rate 30','snd_enable 0','bc_voice_chat_enable 0','cl_motd_time 0','cl_show_welcome 0','connect 127.0.0.1:'+str(port)]
               report={'kind':'owned-official-local-map-readonly-acquisition-NOT-complete-Avoid','source_commit':metadata['source_commit'],'image_sha256':image_sha,'layout':metadata,
                       'map':geometry,'server_arguments':server_args,'client_arguments':client_args,'input_sent':False,'writes_process_memory':False,'injects_dll':False,
-                      'physics_adapter_validated':False,'automatic_avoid_enabled':False,'atomic_snapshot_guaranteed':False,'samples':[],'read_failures':0,'root_reports':[]}
-              reader=None;server=None;client=None
+                      'physics_adapter_validated':False,'automatic_avoid_enabled':False,'atomic_snapshot_guaranteed':False,'samples':[],'read_failures':0,'root_reports':[],
+                      'avoid_preview_mode':'observe-only; --enable-input not supplied','avoid_preview_started':False}
+              reader=None;server=None;client=None;preview_process=None;preview_log_path=None;preview_log_handle=None
               with server_log.open('wb') as sl,client_log.open('wb') as cl:
                   try:
                       server=subprocess.Popen([str(work/'server/Release/DDNet-Server.exe'),*server_args],cwd=work/'server',stdin=subprocess.PIPE,stdout=sl,stderr=subprocess.STDOUT)
@@ -437,6 +468,11 @@ jobs:
                               try:
                                   current=sample(reader,root,module);current['elapsed_ms']=round((time.monotonic()-started)*1000)
                                   report['samples'].append(current)
+                                  if current.get('coherent_candidate') and preview_process is None:
+                                      preview_log_path=work/'avoid-preview-observe.log'
+                                      preview_log_handle=preview_log_path.open('wb')
+                                      preview_process=subprocess.Popen([str(avoid_preview),'--pid',str(client.pid),'--run-ms','5000'],cwd=game.parent,stdout=preview_log_handle,stderr=subprocess.STDOUT)
+                                      report['avoid_preview_started']=True
                                   if current.get('character')=='measured_candidate_only':
                                       if first_online is None:first_online=time.monotonic()
                                       if time.monotonic()-first_online>=8:break
@@ -446,6 +482,15 @@ jobs:
                           time.sleep(.02)
                       report['elapsed_ms']=round((time.monotonic()-started)*1000)
                   finally:
+                      if preview_process is not None:
+                          try:preview_process.wait(timeout=12)
+                          except subprocess.TimeoutExpired:
+                              report['avoid_preview_forced_stop']=True;preview_process.terminate()
+                              try:preview_process.wait(timeout=5)
+                              except subprocess.TimeoutExpired:preview_process.kill();preview_process.wait(timeout=5)
+                          report['avoid_preview_exit_code']=preview_process.returncode
+                      if preview_log_handle is not None:
+                          preview_log_handle.flush();preview_log_handle.close()
                       if reader:reader.close()
                       if client and client.poll() is None:
                           @CB
@@ -460,6 +505,11 @@ jobs:
                           try:server.stdin.write(b'shutdown\n');server.stdin.flush();server.wait(timeout=8)
                           except (OSError,subprocess.TimeoutExpired):server.terminate();server.wait(timeout=10);report['owned_server_forced_stop']=True
                       k.UnmapViewOfFile(view);k.CloseHandle(link)
+              if preview_log_path is not None and preview_log_path.is_file():
+                  preview_text=preview_log_path.read_text(encoding='utf-8',errors='replace')
+                  result_line=next((line[len('RESULT '):] for line in reversed(preview_text.splitlines()) if line.startswith('RESULT ')),None)
+                  if result_line is not None:report['avoid_preview_result']=json.loads(result_line)
+                  else:report['avoid_preview_blocked_reason']=next((line[len('BLOCKED: '):] for line in preview_text.splitlines() if line.startswith('BLOCKED: ')),None)
               report['client_exit']=client.returncode if client else None;report['server_exit']=server.returncode if server else None
               assert hashlib.sha256(game.read_bytes()).hexdigest()==image_sha
               report['official_exe_unchanged']=True
@@ -467,7 +517,17 @@ jobs:
               report['client_log_tail']=client_log.read_text(encoding='utf-8',errors='replace')[-12000:]
               frames=[s for s in report['samples'] if s.get('character')=='measured_candidate_only']
               check_names=sorted({key for frame in frames for key in frame['checks']})
+              preview_result=report.get('avoid_preview_result') or {}
+              preview_pass=bool(report.get('avoid_preview_started') and report.get('avoid_preview_exit_code')==0 and
+                                preview_result.get('valid_frames',0)>=3 and preview_result.get('transition_matches',0)>=3 and
+                                preview_result.get('transition_mismatches')==0 and preview_result.get('decisions',0)>0 and
+                                preview_result.get('input_events')==0 and preview_result.get('corrections')==0 and
+                                preview_result.get('owned_keys_held_at_stop') is False and preview_result.get('release_failed') is False and
+                                preview_result.get('writes_process_memory') is False and preview_result.get('injects_dll') is False)
+              report['avoid_preview_live_reader_observe_pass']=preview_pass
               summary={'kind':report['kind'],'frames_measured':len(frames),'total_samples':len(report['samples']),'read_failures':report['read_failures'],
+                       'avoid_preview_live_reader_observe_pass':preview_pass,'avoid_preview_exit_code':report.get('avoid_preview_exit_code'),
+                       'avoid_preview_blocked_reason':report.get('avoid_preview_blocked_reason'),'avoid_preview_result':preview_result or None,
                        'invariant_pass_counts':{key:sum(frame['checks'].get(key,False) for frame in frames) for key in check_names},
                        'network_frozen_frames':sum(s['network_freeze_end'] is not None and s['network_freeze_end']>s['tick'] for s in frames),
                        'core_in_freeze_frames':sum(s['core']['in_freeze'] for s in frames),
@@ -485,6 +545,8 @@ jobs:
               summary['transport_blob_sha']=created['sha'];summary['report_bytes']=len(payload);summary['report_sha256']=hashlib.sha256(payload).hexdigest()
               (work/'owned-runtime-summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
               print('::notice title=owned-runtime-summary::'+json.dumps(summary,separators=(',',':')))
+              preview_notice=json.dumps({'pass':preview_pass,'exit_code':report.get('avoid_preview_exit_code'),'blocked_reason':report.get('avoid_preview_blocked_reason'),'result':preview_result or None},separators=(',',':'))
+              print(('::notice title=avoid-preview-live-observe-only::' if preview_pass else '::warning title=avoid-preview-live-reader-blocked::')+preview_notice)
               if not frames:print('::warning title=owned-runtime-no-frames::'+(report['client_log_tail'][-2000:]+'\n'+report['server_log_tail'][-1200:]).replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
           except BaseException:
               import traceback

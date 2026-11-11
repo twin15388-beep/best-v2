@@ -1,6 +1,6 @@
 # Внешний помощник над неизменённым официальным клиентом
 
-Первый diagnostic package: 2026-11-10 UTC; ниже учтён пользовательский отчёт с timestamp 2026-11-11. Активный запрос: отдельная программа Avoid Freeze без замены/изменения файлов настоящего клиента. Пользователь делегировал выбор доступа («как знаешь»). Выбрана внешняя read-only архитектура без DLL injection/patching и только обычный системный ввод при явном разрешении. **Полноценный внешний Avoid НЕ реализован. Есть лишь не собранный на Windows и не проверенный in-game static-map preview draft; diagnostic helper не является согласованной заменой требования.**
+Первый diagnostic package: 2026-11-10 UTC; ниже учтён пользовательский отчёт с timestamp 2026-11-11. Активный запрос: отдельная программа Avoid Freeze без замены/изменения файлов настоящего клиента. Пользователь делегировал выбор доступа («как знаешь»). Выбрана внешняя read-only архитектура без DLL injection/patching и только обычный системный ввод при явном разрешении. **Полноценный внешний Avoid НЕ реализован. Static-map preview draft native-собран и прошёл pinned-source MSVC ABI self-check, но actual official EXE layout и in-game поведение не проверены; diagnostic helper не является заменой требования.**
 
 ## Реально добавлено
 
@@ -47,7 +47,7 @@ Measured RTTI: primary vtable file offset **19898296**, RVA **19904440**; comple
 
 ## Draft `MalinkaAvoidPreview` — ограничен и не проверен
 
-Добавлен необязательный исходник [`tools/malinka-helper/avoid`](../tools/malinka-helper/avoid/README.md); по умолчанию `MALINKA_BUILD_AVOID_PREVIEW=OFF`. Это отдельный процесс над неизменённым клиентом, а не новый client build. Он не использует process-write/injection; реальная отправка только обычных клавиш `SendInput` после `--enable-input` и явного F8-arm (либо отдельно запрошенного `--arm-once-ready`). До native build и отдельного in-game validation не запускать input mode и не считать это готовой программой.
+Добавлен необязательный исходник [`tools/malinka-helper/avoid`](../tools/malinka-helper/avoid/README.md); по умолчанию `MALINKA_BUILD_AVOID_PREVIEW=OFF`. Это отдельный процесс над неизменённым клиентом, а не новый client build. Он не использует process-write/injection; реальная отправка только обычных клавиш `SendInput` после `--enable-input` и явного F8-arm (либо отдельно запрошенного `--arm-once-ready`). До exact official-image layout confirmation и отдельного разрешённого in-game validation не запускать input mode и не считать это готовой программой.
 
 Live reader требует точную проверенную public image identity, один complete root candidate, online client, ровно одного игрока/character entity, совпадающие local ID/dummy/world tick и predicted-client copies, корректные backlinks, стабильные повторные чтения, A/D single-command `+left`/`+right` binds и свежий input. Проверки повторного сбора — эвристика когерентности, не атомарная snapshot.
 
@@ -69,7 +69,7 @@ cmake --build build/avoid-preview --config Release --target MalinkaAvoidPreview
 
 Последний Linux ASan/UBSan/leak-detection fixture run: **12,797 checks, 361 runtime-trace transition pairs, 0 mismatches**, synthetic safe direction `-1`, baseline danger tick `36`, `no_game_input=true`. Logs: `.artifacts/external-helper/avoid-fixture-build-6.log` и `avoid-fixture-run-6.log`. Это только policy/importer fixture на сохранённой runtime-3 trace; он не компилирует Windows reader/preview, не проверяет `SendInput` или настоящий Avoid.
 
-Добавлен отдельный Windows/MSVC workflow для optional target и безопасного `--self-test-abi` (без открытия process/ввода). Runs **43032029783** и **43032508024** прошли checkout pinned commit/submodule, но CMake отклонил `src/README.md`: Windows checkout переписал LF в CRLF, и SHA не совпал с pinned Git blob. Workflow теперь задаёт `core.autocrlf=false` для checkout; новый retry ещё не завершён. Configure/build errors сохраняются в check annotations. Пока нет успешной native compilation или candidate self-check; in-game Avoid и badge не проверены. Zig Windows-GNU checks были только syntax checks.
+Добавлен отдельный Windows/MSVC workflow для optional target и безопасного `--self-test-abi` (без открытия process/ввода). После двух configure failures из-за CRLF checkout настройка `core.autocrlf=false` привела к успешному run **43032866534/job130564101587**: exact source/submodule checks, CMake configure, native x64 compile и candidate-ABI self-check прошли. Это подтверждает только pinned compiler-layout candidate, не offsets/layout официального EXE. In-game Avoid и badge не проверены; Zig Windows-GNU checks были только syntax diagnostics.
 
 ## Исторический Native Windows build 0.1.0 и isolated checks
 
@@ -121,9 +121,9 @@ ZIP, README-RU и SHA256SUMS доставлены в отдельную Dropbox 
 
 ## Что блокирует полноценный Avoid / ближайшие проверки
 
-Есть policy/static-map draft и трассовая fixture, но **нет native MSVC сборки, live reader capture из actual официального клиента и верификации in-game**. Runtime-3 test доказывает только, что pinned physics policy совпала на 361 парах одной сохранённой трассы; он не доказывает, что `LiveReader` прочитал правильные поля из запущенного EXE, что capture атомарен или что `SendInput` безопасен в реальной игре. Compiler-derived CGameClient offsets всё ещё имеют `runtime_validated=false`; фактическая видео-конфигурация EXE не подтверждена.
+Есть policy/static-map draft и трассовая fixture; native MSVC compile и pinned candidate self-check прошли, но **live reader capture из actual официального клиента и in-game verification отсутствуют**. Runtime-3 test доказывает только, что pinned physics policy совпала на 361 парах одной сохранённой трассы; native self-check не доказывает, что `LiveReader` читает те же layout offsets из установленного EXE, что capture атомарен или что `SendInput` безопасен в реальной игре. Compiler-derived CGameClient offsets всё ещё имеют `runtime_validated=false`; фактическая видео-конфигурация EXE не подтверждена.
 
-Следующие gates: (1) native Windows/MSVC build optional target; (2) доказать exact process layout/configuration для того же official image; (3) observe-only live capture на карте с independent checks local ID/dummy/pos/vel/tick/freeze, карта/collision/tuning, session/map invalidation и supported-input bindings; (4) одинаковые in-game freeze trials без input, затем отдельное явно разрешённое ordinary-input тестирование с focus/physical-key conflict/watchdog/release. Unsupported entities/layers/zones должны оставаться blocked, не обходиться guessed offsets или приближением.
+Следующие gates: (1) доказать exact process layout/configuration для того же official image; (2) observe-only live capture на карте с independent checks local ID/dummy/pos/vel/tick/freeze, карта/collision/tuning, session/map invalidation и supported-input bindings; (3) одинаковые in-game freeze trials без input, затем отдельное явно разрешённое ordinary-input тестирование с focus/physical-key conflict/watchdog/release. Unsupported entities/layers/zones должны оставаться blocked, не обходиться guessed offsets или приближением.
 
 Первый пользовательский отчёт уже установил exact EXE identity, повторно просить его не нужно. Он был снят в первые миллисекунды startup и не содержит доказательства состояния на карте; для новой стадии нужен только новый, отдельно объяснённый **live on-map** результат после native build, не повторная отправка старого JSON. Mumble render telemetry по-прежнему недостаточно; screen-only automation не является доказанным эквивалентом.
 
