@@ -1,0 +1,69 @@
+name: Malinka companion standalone build
+on:
+  push:
+    branches: [main, "arena/**"]
+    paths: ["tools/malinka-helper/**", ".github/workflows/malinka-companion-build.yml"]
+  pull_request:
+    paths: ["tools/malinka-helper/**", ".github/workflows/malinka-companion-build.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: malinka-companion-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build independent Windows x64 diagnostic application (not game-client)
+        shell: python
+        run: |
+          import subprocess
+          subprocess.run(['cmake', '-S', 'tools/malinka-helper', '-B', 'build-helper', '-A', 'x64'], check=True)
+          subprocess.run(['cmake', '--build', 'build-helper', '--config', 'Release', '--parallel', '2'], check=True)
+      - name: Package application and exact standalone sources (not an update release)
+        shell: python
+        run: |
+          import hashlib, json, re, subprocess, zipfile
+          from pathlib import Path
+          source = Path('tools/malinka-helper')
+          version, = re.findall(r'\bVERSION\s*=\s*"([A-Za-z0-9.-]+)"', (source / 'core.h').read_text(encoding='utf-8'))
+          commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          subprocess.run(['git', 'diff', '--exit-code', '--', str(source)], check=True)
+          app = Path('build-helper/Release/MalinkaHelper.exe').read_bytes()
+          assert 0 < len(app) < 8 * 1024 * 1024
+          output = Path('build-helper/artifacts')
+          output.mkdir(exist_ok=False)
+          name = 'MalinkaHelper-' + version + '-windows-x64.zip'
+          metadata = {'source_commit': commit, 'version': version, 'platform': 'windows-x64-msvc',
+                      'exe_sha256': hashlib.sha256(app).hexdigest(), 'exe_bytes': len(app),
+                      'automatic_avoid': 'BLOCKED / NOT IMPLEMENTED',
+                      'verification': 'Build only. No runtime or gameplay claim from this workflow.'}
+          paths = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', 'HEAD', '--', str(source)], text=True).splitlines()
+          hashes = {}
+          with zipfile.ZipFile(output / name, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              z.writestr('MalinkaHelper.exe', app)
+              for path in paths:
+                  data = Path(path).read_bytes()
+                  assert data == subprocess.check_output(['git', 'show', 'HEAD:' + path]), path
+                  relative = path.removeprefix('tools/malinka-helper/')
+                  hashes[relative] = hashlib.sha256(data).hexdigest()
+                  z.writestr('source/' + relative, data)
+              z.writestr('README-RU.md', (source / 'README.md').read_bytes())
+              z.writestr('LICENSE', Path('LICENSE').read_bytes())
+              z.writestr('BUILD.json', json.dumps(metadata, indent=2) + '\n')
+              z.writestr('SOURCE-SHA256.json', json.dumps(hashes, indent=2, sort_keys=True) + '\n')
+          with zipfile.ZipFile(output / name) as z:
+              assert z.testzip() is None
+          digest = hashlib.sha256((output / name).read_bytes()).hexdigest()
+          (output / 'SHA256SUMS.txt').write_text(digest + '  ' + name + '\n', encoding='utf-8')
+          (output / 'BUILD.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
+          print('::notice title=companion-build-only::' + json.dumps(metadata, separators=(',', ':')))
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: malinka-companion-diagnostic-windows-x64
+          path: build-helper/artifacts/
+          retention-days: 14
+          if-no-files-found: error

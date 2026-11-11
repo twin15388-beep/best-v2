@@ -1,10 +1,46 @@
-# Передача задачи: BestClient + malinka
+# Передача задачи: внешний помощник / исторический BestClient + malinka
 
-Обновлено **2026-11-10 UTC**. Repo `/home/user/best-v2`, фиксированная ветка **`arena/733fc6a9-best-v2`**. Текущий production source **`facfc8563106d5421de5c73f861e2e5df342f6ad`**, версия **0.1.1**. Свежий Windows ZIP и соответствующий source archive **действительно проверены и доставлены**. Последующие maintenance commits меняют только docs/workflows, production diff против facfc85 пустой. **Полный исходный запрос не выполнен.**
+Обновлено **2026-11-10 UTC**. Repo `/home/user/best-v2`, фиксированная ветка **`arena/733fc6a9-best-v2`**. **Активная задача теперь — отдельный Avoid над неизменённым официальным клиентом. Он ещё НЕ реализован.** Добавлен и реально проверен отдельный **0.1.0-diagnostic** помощник; не выдавать его за работающий Avoid. Исторический изменённый клиент **facfc8563106d5421de5c73f861e2e5df342f6ad /0.1.1** ранее доставлен; его production src/CMake/data/lock в этой работе не менялись. **Полный первоначальный запрос также не выполнен.**
 
-## Активный запрос и принятый scope
+## Текущий запрос / выбор пользователя
 
-Пользователь: «доделывай… настройки avoid не такие… fake… insert… убери krx… замаскируй tas». Уточнение пользователя: **«Скрытие и вкладки и команд в консоли»**. Последнее сообщение: «продолжай».
+Пользователь: **«а вариант по верх настоящего клиета сделать чтобы не вмешиваться в файлы или программу которая делает avoid freeze чтобы был офиц клиент»**. На выбор read-only process + ordinary input против screen-only ответил **«как знаешь»**. Выбрана read-only архитектура без изменения файлов/памяти клиента и DLL injection. Обнаружен штатный Mumble Link, но он даёт только render telemetry; нет подтверждённой physics/input integration. Пользователю явно сказано, что диагностический этап не заменяет реальный Avoid. Исходники повторно не просить, offsets/signatures/совместимость не выдумывать, подмены badge нет. Ответы — `[Aero]` первой строкой, **бро**, русский.
+
+### Что реально сделано сейчас
+
+- `tools/malinka-helper/`: независимый C++20/MSVC/x64 Win32 GUI, topmost/resize/DPI, async/cancellable inspection, explicit unmodified EXE launch, RO process/module/PE reads, standard MumbleLink consumer, new/no-replace JSON outside client directory. Ни SendInput, ни process write/injection/hooks/debug privilege нет. Это не изменённый клиент и не DLL.
+- `core.h`: единственный exact-image public profile, offsets персонажа/collision **nullopt**, в JSON `null`, automatic Avoid **BLOCKED всегда**. PE parser + safe RVA/raw translation, finite telemetry/tick wrap/offline/stale. Shared ABI не имеет writer PID/seqlock; double collect не доказывает цельный physics snapshot.
+- `win32.cpp`: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE)`, `ReadExact` rejects partial, module/header identity, ASLR-adjusted vtable, private-memory candidate search ≤512MiB/65536queries/1500ms/32candidates. Candidates **не validated CGameClient/world**. Session/process data — разовое измерение, не live snapshot. No-replace report/junction/client-directory refusal.
+- `main_win32.cpp`: отдельное окно/CLI; focus/key injection отсутствуют, поэтому нет скрытого automatic input. Нормальные собственные config saves игры не отключаются. Выход помощника не закрывает клиент.
+- `docs/MALINKA_EXTERNAL.md`, helper README/provenance: exact provenance, build/test commands, limits и acquisition recipe. Постоянный build-only workflow `malinka-companion-build.yml` отделён от game build; `malinka-build.yml` игнорирует helper-only paths. Временные audit/check workflows удалены после успеха; рецепт полностью остаётся в Git e8e1547.
+
+### Измеренные build identity / источники
+
+Public official Best v3.1.1 tag→**cf192e3fb8590dbe2e4f66a191aa6616beff6975**. ZIP asset**730984669**/**65165594bytes**/SHA256**51688c041453d989522658cf46ae21b08ef46b28786da204b82e46c5166d7059**. Внутри `bestclient-3.1.1-win64/DDNet.exe` **26206720bytes**/SHA256**50430c5f1081863b956fd5f0d8e1c6b88d1aa27f79e199c4053e86a5b632902f**, AMD64/SizeOfImage50638848. Primary vtable **fileoffset19898296/RVA19904440**, COL RVA24123696/type descriptor RVA25441720; первые8 function RVAs только fingerprint, не предполагаемые методы. RuntimeVA только от measured base. Нет PDB в этом asset. Acquisition **CI43002224833/check130460886361 SUCCESS**, metadata helper/provenance JSON.
+
+**Совпадение с пользовательским Dropbox BestZIP120621904bytes НЕ установлено; другие EXE даже с именем v3.1.1 блокируются.** Read-only/header identity не доказывают genuine remote badge или отсутствие чужих модификаций процесса.
+
+### Реально завершённые проверки / доставка
+
+Pinned helper source **e8e1547f104c662e2b350a47f852609d3eaf1f61**. **CI43005315923/job130471217878 SUCCESS1m0s /watch exit0**, Windows2022/MSVC19.44.35229.0/SDK10.0.26100.0. Standalone `cmake -S tools/malinka-helper -B build-helper-release -A x64` и `cmake --build build-helper-release --config Release --parallel 2`: **exit0 оба**. Actual core+Win32 isolated fixture **compile0/run0**, **1080071 core checks/0failures**, **43 Win32 checks/0failures**. Дополнительно exact delivered standalone EXE: CLI/selfprocess/unknown-build/report-no-replace, real public official EXE **только как файл**/RTTI, no forbidden imports, GUI create/resize/self-PID inspect/topmost/close. Это synthetic messages, не physical keys; official game не запускался.
+
+Linux g++12.2/CMake3.31.6/Ninja1.11.1.3 portable core configure/build **0**; ASan/UBSan/LSan core **compile0/run0/1080071/0**. Logs `.artifacts/external-helper/core-{configure-2,build-3,check-compile-3,check-run-3}.{log,exit}`; exact commands EXTERNAL. Первое configure1 из-за Ninja вне PATH исправлено. Native attempts43004322507 (fixture CMake backslash),43004678906 (GetWindowTextW не читает чужой EDIT),43004999743 (all runtime passed, strict source CRLF assertion) исправлены: normalized paths, WM_GETTEXT+timeout, helper-local `.gitattributes eol=lf`. Последний успех выше; не повторять старые ошибки/пакеты. Полные fixture sources/recipe: `git show e8e1547:.github/workflows/malinka-companion-check.yml`.
+
+**Получен оригинальный diagnostic ZIP**, не relabeled game EXE: `build/delivery/malinka-helper-e8e1547/MalinkaHelper-0.1.0-diagnostic-windows-x64.zip`, **204963bytes**, SHA256**66c9685adf3a81a311c1fd6b984be62ef18376dd23c07eeb2e8cf547bd63c16d**. Внутри `MalinkaHelper.exe` **355840bytes**, SHA256**b0c0ad64259778b57e9b337e42a8de21169f7b4962f82a8c7359554cc5cd70a3**, AMD64/PE32+/GUI; все **11 source/build/provenance files byte-identical Git**, README/LICENSE/CHECKS/source SHA list. ZIP CRC/blob/whole/PE/source verified locally exit0, `.artifacts/external-helper/verified-delivery.json`. Archive unchanged после CI. Unreferenced bounded blob32b23ee1d12f1f3162756dcbd345c4b86d0e14ba — transport only, без binary commit/ref/release.
+
+Dropbox **`/MalinkaHelper-diagnostic-e8e1547`**, folderid`id:dED5V7bj3cAAAAAAAAAAEw`, uploaded ZIP(`id:dED5V7bj3cAAAAAAAAAAFQ`,rev65ffddb3f65674b309220), README(`id:dED5V7bj3cAAAAAAAAAAFg`,9707bytes), SHA256SUMS(`id:dED5V7bj3cAAAAAAAAAAFA`,113bytes). Add/strict-conflict, readback list matched3 files; public viewer/download ZIP link создан (access params в Git не копировать). ZIP contenthash955def309e249cf9f4393125fbc9e0b080947fc18a206ebf07209215b3193008. Историческая 0.1.1 папка НЕ заменялась.
+
+### Ближайший шаг / недостающие входные данные
+
+**Не выполнены внешние Avoid/physics/map/tuning/input adapter и наблюдение badge со второго unmodified клиента. not verified in-game.** Нужен runtime report от реальной официальной сборки на карте: helper вне client folder → реальный PID → повторная проверка → новый JSON вне игры. Он даёт identity/root candidates, не готовую физику. Затем matching source/compiler layout/symbols и независимое подтверждение local ID/dummy/pos/vel/tick/freeze; bounded consistent map/tuning/collision snapshot с invalidation по смене карты/сессии, независимая симуляция, ordinary input с focus/physical-key conflict/watchdog/release, same-map freeze outcomes. Нельзя включать input по render-координатам или одному candidate pointer. Public source/independent work выполнять без повторного запроса исходников; diagnostic gating не считать согласованной заменой запроса.
+
+### Важное исправление Git-state
+
+На входе был local244d7d4/README modified/imported source untracked, push нового audit47ae2e1 отклонён non-fast-forward. Fetch показал, что **эта же ветка** уже remote35a6576. **Все2374remote paths measured byte-identical** рабочим файлам, missing/different0. Сделан двухродительский merge0f13c6a через merge-tree/index-only read-tree, **ни один рабочий файл не заменялся**,2375SHA256 unchanged; no reset/clean/checkout/force push/new branch. История35a6576 теперь реально включена, рабочее дерево стало tracked/clean до последующих task edits. Reports `.artifacts/external-helper/{remote-worktree-comparison,history-synchronization}.json`. НЕ повторять recovery/import из старой memory. Текущий HEAD смотреть git log/status. Game production diff против35a6576 (src/CMake/data/lock) пустой. Не связанные с helper unchanged game builds43002224696 и43004322607 также SUCCESSboth, но не feature/runtime proof и не новая доставка fork.
+
+## Исторический запрос к изменённому клиенту (по-прежнему не весь выполнен)
+
+Пользователь ранее: «доделывай… настройки avoid не такие… fake… insert… убери krx… замаскируй tas». Уточнение: **«Скрытие и вкладки и команд в консоли»**. Далее — сохранённые результаты исторической версии0.1.1, НЕ новый companion.
 
 - Insert — **UI-only**: вкладки Malinka + локальные F1 suggestions/setting help скрываются, execution/binds/config/history/backlog и F2 не удаляются. Latch живёт до полного перезапуска процесса, reconnect его не сбрасывает.
 - Маскировка файлов и подделка авторизации **не выполнялись**. Genuine externally visible Best badge остаётся нерешённым.
