@@ -69,7 +69,9 @@ jobs:
                   logs.append(r.stdout)
                   Path('layout-build.log').write_text('\n'.join(logs),encoding='utf-8')
                   if r.returncode:
-                      print('::error title=layout-build::'+r.stdout[-45000:].replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+                      errors='\n'.join(line for line in r.stdout.splitlines() if re.search(r'(?:fatal )?error (?:C\d|LNK\d|MSB\d)|CMake Error|error:',line))
+                      detail=errors or r.stdout[-3500:]
+                      print('::error title=layout-build::'+detail[:3500].replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
                       raise RuntimeError('layout command exit '+str(r.returncode))
               measured=json.loads(subprocess.check_output(['build-layout/Release/layout-probe.exe'],text=True))
               metadata={'kind':'compiler-derived-source-layout-NOT-runtime-validated','source_commit':'cf192e3fb8590dbe2e4f66a191aa6616beff6975','defines':['CONF_AUTOUPDATE','CONF_DISCORD','CONF_DISCORD_DYNAMIC','_ITERATOR_DEBUG_LEVEL=0'],'values':measured,'runtime_validated':False,'automatic_avoid_enabled':False}
