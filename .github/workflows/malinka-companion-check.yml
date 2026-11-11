@@ -200,7 +200,7 @@ jobs:
                   z.writestr('MalinkaHelper.exe',exe)
                   for source in paths:
                       data=Path(source).read_bytes()
-                      assert data==subprocess.check_output(['git','show','HEAD:'+source])
+                      assert data==subprocess.check_output(['git','show','HEAD:'+source]), source+' differs from canonical Git bytes'
                       relative=source.removeprefix('tools/malinka-helper/')
                       source_hashes[relative]=hashlib.sha256(data).hexdigest()
                       z.writestr('source/'+relative,data)

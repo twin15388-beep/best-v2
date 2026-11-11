@@ -1,0 +1,2 @@
+# Keep the standalone source bundle byte-identical on Windows and Unix.
+* text=auto eol=lf
