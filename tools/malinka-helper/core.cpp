@@ -19,6 +19,11 @@ bool UserRange(std::uint64_t address, std::uint64_t length)
 {
 	return address >= 0x10000 && address <= MAX_USER_ADDRESS && length > 0 && length - 1 <= MAX_USER_ADDRESS - address;
 }
+std::optional<std::uint64_t> ElapsedFileTimeMs(std::uint64_t start_100ns, std::uint64_t end_100ns)
+{
+	if(start_100ns == 0 || end_100ns < start_100ns) return std::nullopt;
+	return (end_100ns - start_100ns) / 10000;
+}
 std::string JsonString(std::string_view value)
 {
 	constexpr char DIGITS[] = "0123456789abcdef";
@@ -246,9 +251,13 @@ std::string MakeReport(const Report &r)
 {
 	std::ostringstream o;
 	o.imbue(std::locale::classic()); o << std::setprecision(9);
-	o << "{\n  \"schema\": 1,\n  \"tool\": \"MalinkaHelper\",\n  \"version\": " << JsonString(VERSION)
-	  << ",\n  \"measured_at_utc\": " << JsonString(r.measured_at_utc)
-	  << ",\n  \"automatic_avoid\": {\"enabled\": false, \"status\": \"BLOCKED\", \"reason\": \"No validated character/collision/tuning/input adapter; diagnostics are not Avoid Freeze\"},"
+	o << "{\n  \"schema\": 2,\n  \"tool\": \"MalinkaHelper\",\n  \"version\": " << JsonString(VERSION)
+	  << ",\n  \"measured_at_utc\": " << (r.measured_at_utc.empty() ? "null" : JsonString(r.measured_at_utc))
+	  << ",\n  \"inspection_finished_at_utc\": " << (r.inspection_finished_at_utc.empty() ? "null" : JsonString(r.inspection_finished_at_utc))
+	  << ",\n  \"saved_at_utc\": " << (r.saved_at_utc.empty() ? "null" : JsonString(r.saved_at_utc))
+	  << ",\n  \"inspection_trigger\": " << JsonString(r.inspection_trigger)
+	  << ",\n  \"inspection_duration_ms\": "; Optional(o, r.inspection_duration_ms);
+	o << ",\n  \"automatic_avoid\": {\"enabled\": false, \"status\": \"BLOCKED\", \"reason\": \"No validated character/collision/tuning/input adapter; diagnostics are not Avoid Freeze\"},"
 	  << "\n  \"policy\": {\"writes_client_files\": false, \"writes_process_memory\": false, \"injects_dll\": false, \"sends_input\": false, \"official_badge_verified\": false},"
 	  << "\n  \"file\": {\"path\": " << JsonString(r.file.path) << ", \"sha256\": " << JsonString(r.file.sha256)
 	  << ", \"error\": " << JsonString(r.file.error) << ", \"recognized_public_release\": " << (r.file.recognized_public_release ? "true" : "false")
@@ -265,12 +274,19 @@ std::string MakeReport(const Report &r)
 	{
 		const auto &p = *r.process;
 		o << "{\"pid\": " << p.pid << ", \"measurement_only_not_a_live_snapshot\": true, \"creation_time_100ns\": " << (p.creation_time_100ns ? std::to_string(p.creation_time_100ns) : "null")
-		  << ", \"module_base_runtime_va\": " << (UserRange(p.module_base, p.module_size) ? JsonString(Hex(p.module_base)) : "null") << ", \"module_size\": " << (p.module_size ? std::to_string(p.module_size) : "null")
+		  << ", \"expected_creation_time_100ns\": "; Optional(o, p.expected_creation_time_100ns);
+		o << ", \"age_ms_at_inspection_start\": "; Optional(o, p.age_ms_at_inspection_start);
+		o << ", \"age_ms_at_scan_start\": "; Optional(o, p.age_ms_at_scan_start);
+		o << ", \"module_base_runtime_va\": " << (UserRange(p.module_base, p.module_size) ? JsonString(Hex(p.module_base)) : "null") << ", \"module_size\": " << (p.module_size ? std::to_string(p.module_size) : "null")
 		  << ", \"handle_read_only\": " << (p.read_only_handle ? "true" : "false")
 		  << ", \"loaded_headers_match\": " << (p.loaded_headers_match ? "true" : "false")
 		  << ", \"loaded_vtable_matches\": " << (p.loaded_vtable_matches ? "true" : "false") << ", \"error\": " << JsonString(p.error)
 		  << ", \"root_scan\": {\"status\": " << JsonString(p.scan.status) << ", \"reason\": " << JsonString(p.scan.reason)
-		  << ", \"bytes_read\": " << p.scan.bytes_read << ", \"bytes_attempted\": " << p.scan.bytes_attempted
+		  << ", \"scope\": \"Committed readable MEM_PRIVATE, 8-byte-aligned pointer matches; not an atomic snapshot\""
+		  << ", \"started_at_utc\": " << (p.scan.started_at_utc.empty() ? "null" : JsonString(p.scan.started_at_utc))
+		  << ", \"finished_at_utc\": " << (p.scan.finished_at_utc.empty() ? "null" : JsonString(p.scan.finished_at_utc))
+		  << ", \"duration_ms\": "; Optional(o, p.scan.duration_ms);
+		o << ", \"bytes_read\": " << p.scan.bytes_read << ", \"bytes_attempted\": " << p.scan.bytes_attempted
 		  << ", \"regions_queried\": " << p.scan.regions_queried << ", \"failed_reads\": " << p.scan.failed_reads << ", \"candidate_runtime_vas\": [";
 		for(std::size_t n = 0; n < p.scan.candidates.size(); ++n) { if(n) o << ','; o << JsonString(Hex(p.scan.candidates[n])); }
 		o << "], \"candidates_are_validated_game_state\": false}}";

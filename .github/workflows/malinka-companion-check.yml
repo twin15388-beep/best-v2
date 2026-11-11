@@ -1,0 +1,338 @@
+# Disposable isolated checks. No target-client files, private credentials or releases are changed.
+name: Malinka companion fresh-report native checks
+on:
+  push:
+    branches: ["arena/733fc6a9-best-v2"]
+    paths: ["tools/malinka-helper/**", ".github/workflows/malinka-companion-check.yml"]
+permissions:
+  contents: write
+jobs:
+  native:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Create temporary isolated fixtures outside production sources
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('build-helper-check-source');p.mkdir(exist_ok=False)
+          (p/'check_core.cpp').write_text('#include "core.h"\n#include <algorithm>\n#include <array>\n#include <cmath>\n#include <cstring>\n#include <iostream>\n#include <limits>\n#include <random>\n#include <stdexcept>\nusing namespace malinka::helper;\nstd::uint64_t checks=0;\nvoid Check(bool ok) { ++checks; if(!ok) throw std::runtime_error("check " + std::to_string(checks)); }\nvoid P16(std::vector<std::byte>&b,std::size_t at,std::uint16_t x) { b.at(at)=std::byte(x&255);b.at(at+1)=std::byte(x>>8); }\nvoid P32(std::vector<std::byte>&b,std::size_t at,std::uint32_t x) { P16(b,at,static_cast<std::uint16_t>(x));P16(b,at+2,static_cast<std::uint16_t>(x>>16)); }\nvoid P64(std::vector<std::byte>&b,std::size_t at,std::uint64_t x) { P32(b,at,static_cast<std::uint32_t>(x));P32(b,at+4,static_cast<std::uint32_t>(x>>32)); }\nstd::vector<std::byte> Pe()\n{\n std::vector<std::byte>b(2048);P16(b,0,0x5a4d);P32(b,60,128);P32(b,128,0x4550);P16(b,132,0x8664);P16(b,134,1);P16(b,148,240);\n const std::size_t o=152;P16(b,o,0x20b);P64(b,o+24,0x140000000);P32(b,o+32,4096);P32(b,o+36,512);P32(b,o+56,8192);P32(b,o+60,512);P32(b,o+108,16);\n const std::size_t s=o+240;std::memcpy(b.data()+s,".text",5);P32(b,s+8,1536);P32(b,s+12,4096);P32(b,s+16,1536);P32(b,s+20,512);P32(b,s+36,0x60000020);return b;\n}\nMumbleWindows Sample()\n{\n MumbleWindows v{};v.version=2;v.tick=100;std::copy_n(u"DDNet",6,v.name);std::copy_n(u"0",2,v.identity);\n const char *context="127.0.0.1:8303 0";v.context_length=static_cast<std::uint32_t>(std::strlen(context));std::memcpy(v.context,context,v.context_length+1);\n v.avatar_position[0]=1;v.avatar_position[2]=2;return v;\n}\nint main()\n{\n try {\n  for(std::uint64_t size=0;size<96;++size)for(std::uint64_t a=0;a<100;++a)for(std::uint64_t n=0;n<100;++n)\n   Check(Contains(size,a,n)==(n<=size && a<=size-n));\n  const std::array<std::uint64_t,10> bounds{0,1,8,65535,65536,MAX_USER_ADDRESS-7,MAX_USER_ADDRESS,MAX_USER_ADDRESS+1,UINT64_MAX-1,UINT64_MAX};\n  for(auto s:bounds)for(auto a:bounds)for(auto n:bounds)Check(Contains(s,a,n)==(n<=s && a<=s-n));\n  Check(!ElapsedFileTimeMs(0,0));Check(!ElapsedFileTimeMs(0,10000));Check(!ElapsedFileTimeMs(10000,9999));\n  Check(ElapsedFileTimeMs(1,1)==0);Check(ElapsedFileTimeMs(1,10000)==0);Check(ElapsedFileTimeMs(1,10001)==1);\n  Check(ElapsedFileTimeMs(134388681360224525ULL,134388681360380000ULL)==15);\n  Check(ElapsedFileTimeMs(1,UINT64_MAX)==(UINT64_MAX-1)/10000);Check(ElapsedFileTimeMs(UINT64_MAX,UINT64_MAX)==0);\n  for(auto start:bounds)for(auto end:bounds){auto ms=ElapsedFileTimeMs(start,end);Check(ms.has_value()==(start!=0 && end>=start));if(ms)Check(*ms==(end-start)/10000);}\n  Check(!UserRange(0,8));Check(!UserRange(65536,0));Check(UserRange(MAX_USER_ADDRESS,1));Check(!UserRange(MAX_USER_ADDRESS,2));Check(!UserRange(UINT64_MAX,2));\n  Check(JsonString("a\\n\\r\\t\\\\\\"\\x01")=="\\"a\\\\u000a\\\\u000d\\\\u0009\\\\\\\\\\\\\\"\\\\u0001\\"");Check(Hex(0)=="0x0");\n  auto base=Pe();auto parsed=ParseImage(base);Check(parsed.image.has_value());const auto &im=*parsed.image;\n  Check(im.RawOffset(4096,1536)==512);Check(!im.RawOffset(4096,1537));Check(im.RawOffset(0,64)==0);Check(!im.RawOffset(0,0));Check(!im.RawOffset(UINT32_MAX,8));\n  for(std::size_t n=0;n<base.size();++n)Check(!ParseImage(std::span{base}.first(n)).image);\n  struct Mutation {std::size_t at;std::uint32_t value;};\n  for(auto [at,value]:std::array<Mutation,19>{{{60,UINT32_MAX},{60,0},{128,0},{152+32,0},{152+32,3000},{152+36,0},{152+36,1024},{152+56,0},{152+56,4096},{152+60,0},{152+60,2049},{152+108,17},{392+12,0},{392+12,4097},{392+16,1537},{392+20,513},{392+20,2048},{392+8,UINT32_MAX},{392+16,UINT32_MAX}}})\n  {auto b=base;P32(b,at,value);Check(!ParseImage(b).image);}\n  {auto b=base;P16(b,132,0x14c);Check(!ParseImage(b).image);P16(b,132,0x8664);P16(b,134,97);Check(!ParseImage(b).image);}\n  std::mt19937_64 random(0x123889);\n  for(unsigned k=0;k<50000;++k)\n  {\n   auto b=base;const unsigned count=1+static_cast<unsigned>(random()%12);\n   for(unsigned j=0;j<count;++j)b[static_cast<std::size_t>(random()%b.size())]=std::byte(random()&255);\n   auto got=ParseImage(b);Check(got.image.has_value()!=!got.error.empty());\n   if(got.image)for(unsigned j=0;j<20;++j)\n   {auto rva=static_cast<std::uint32_t>(random()%10000);auto len=static_cast<std::uint32_t>(random()%4096);auto raw=got.image->RawOffset(rva,len);if(raw)Check(len>0 && Contains(b.size(),*raw,len));}\n  }\n  Image known;known.machine=0x8664;known.timestamp=PUBLIC_311.timestamp;known.image_size=PUBLIC_311.image_size;known.file_size=PUBLIC_311.file_size;known.preferred_base=0x140000000;\n  known.sections={{".text",4096,19604460,1024,19604480,0x60000020},{".rdata",19611648,5419976,19605504,5420032,0x40000040},{".data",25034752,24863168,25025536,457216,0xc0000040}};\n  Check(MatchesPublicImage(known,PUBLIC_311.sha256));Check(!MatchesPublicImage(known,std::string(64,\'0\')));\n  auto fp=std::vector<std::byte>(static_cast<std::size_t>(known.file_size));\n  const auto vt=*known.RawOffset(PUBLIC_311.vtable_rva-8,72),loc=*known.RawOffset(PUBLIC_311.locator_rva,24),td=*known.RawOffset(PUBLIC_311.type_descriptor_rva,34);\n  P64(fp,vt,known.preferred_base+PUBLIC_311.locator_rva);\n  for(std::size_t n=0;n<8;++n)P64(fp,vt+8+n*8,known.preferred_base+PUBLIC_311.first_function_rvas[n]);\n  P32(fp,loc,1);P32(fp,loc+12,PUBLIC_311.type_descriptor_rva);P32(fp,loc+20,PUBLIC_311.locator_rva);std::memcpy(fp.data()+td+16,".?AVCGameClient@@",18);\n  Check(ValidatePublicVtable(fp,known));\n  for(std::size_t n=0;n<72;++n){fp[vt+n]^=std::byte{1};Check(!ValidatePublicVtable(fp,known));fp[vt+n]^=std::byte{1};}\n  for(std::size_t n=0;n<18;++n){fp[td+16+n]^=std::byte{1};Check(!ValidatePublicVtable(fp,known));fp[td+16+n]^=std::byte{1};}\n  Check(!ValidatePublicVtable(std::span{fp}.first(td+33),known));\n  auto malformed=known;malformed.sections[2].raw_size=PUBLIC_311.type_descriptor_rva-malformed.sections[2].rva+33;Check(!ValidatePublicVtable(fp,malformed));\n  auto v=Sample();TelemetryTracker tracker;auto t=tracker.Observe(v,1000);Check(t.status=="warming" && t.x==128 && t.y==256 && t.client_id==0 && !t.observed_tick_advance);\n  ++v.tick;t=tracker.Observe(v,1020);Check(t.status=="live_diagnostic" && t.observed_tick_advance);\n  t=tracker.Observe(v,1270);Check(t.status=="live_diagnostic");t=tracker.Observe(v,1271);Check(t.status=="stale" && !t.x && t.age_ms==251);\n  ++v.tick;Check(tracker.Observe(v,1300).status=="live_diagnostic");\n  v.context_length=0;t=tracker.Observe(v,1301);Check(t.status=="offline" && !t.client_id && !t.x);\n  v=Sample();Check(tracker.Observe(v,1302).status=="warming");\n  ++v.tick;Check(tracker.Observe(v,1303).status=="live_diagnostic");Check(tracker.Observe(v,1).status=="warming");\n  v=Sample();v.tick=UINT32_MAX;tracker.Reset();Check(tracker.Observe(v,100).status=="warming");v.tick=0;Check(tracker.Observe(v,101).status=="live_diagnostic");\n  v.tick=0x80000000U;Check(tracker.Observe(v,102).status=="warming");\n  for(unsigned id=0;id<100;++id)\n  {\n   v=Sample();std::fill(std::begin(v.identity),std::end(v.identity),char16_t{});const auto text=std::to_string(id);for(std::size_t i=0;i<text.size();++i)v.identity[i]=static_cast<char16_t>(text[i]);tracker.Reset();t=tracker.Observe(v,100);\n   Check((id<64 && t.status=="warming" && t.client_id==static_cast<int>(id)) || (id>=64 && t.status=="invalid"));\n  }\n  for(auto version:{0U,1U,3U,UINT32_MAX}){v=Sample();v.version=version;t=tracker.Observe(v,200);Check(t.status==(version==0?"no_writer":"invalid") && !t.x);}\n  for(unsigned axis=0;axis<3;++axis)for(float f:{std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity(),-std::numeric_limits<float>::infinity(),1.0e20f})\n  {v=Sample();v.avatar_position[axis]=f;Check(tracker.Observe(v,200).status=="invalid");}\n  v=Sample();v.avatar_position[1]=1;Check(tracker.Observe(v,200).status=="invalid");\n  v=Sample();v.context_length=256;Check(tracker.Observe(v,200).status=="invalid");\n  v=Sample();v.context[v.context_length]=\'x\';Check(tracker.Observe(v,200).status=="invalid");\n  v=Sample();std::fill(std::begin(v.identity),std::end(v.identity),u\'1\');Check(tracker.Observe(v,200).status=="invalid");\n  v=Sample();v.identity[1]=u\'0\';v.identity[2]=0;Check(tracker.Observe(v,200).status=="invalid");\n  v=Sample();v.name[0]=u\'X\';Check(tracker.Observe(v,200).status=="invalid");\n  v=Sample();tracker.Reset();tracker.Observe(v,100);++v.tick;Check(tracker.Observe(v,101).status=="live_diagnostic");v.context[0]=\'2\';Check(tracker.Observe(v,102).status=="warming");\n  for(unsigned k=0;k<20000;++k)\n  {\n   v=Sample();auto bytes=std::as_writable_bytes(std::span{&v,1});for(unsigned j=0;j<8;++j)bytes[static_cast<std::size_t>(random()%bytes.size())]=std::byte(random()&255);\n   auto a=tracker.Observe(v,static_cast<std::uint64_t>(k));Check(!a.x || (std::isfinite(*a.x) && a.y && std::isfinite(*a.y)));Check(a.status!="stale" || !a.x);\n  }\n  Report report;report.file.path="C:\\\\a\\n\\"x.exe";const auto json=MakeReport(report);Check(json.find("\\"enabled\\": false")!=std::string::npos);Check(json.find("\\"character_state_offset\\": null")!=std::string::npos);Check(json.find("writes_process_memory\\": false")!=std::string::npos);\n  Check(json.find("\\"schema\\": 2")!=std::string::npos);Check(json.find("\\"inspection_duration_ms\\": null")!=std::string::npos);Check(json.find("\\"saved_at_utc\\": null")!=std::string::npos);\n  report.process.emplace();report.process->pid=1;report.process->age_ms_at_inspection_start=0;report.process->expected_creation_time_100ns=UINT64_MAX;\n  report.process->scan.duration_ms=0;report.inspection_duration_ms=0;report.inspection_trigger="gui_save_fresh_inspection";\n  const auto timed=MakeReport(report);Check(timed.find("\\"age_ms_at_inspection_start\\": 0")!=std::string::npos);Check(timed.find("\\"age_ms_at_scan_start\\": null")!=std::string::npos);\n  Check(timed.find("\\"expected_creation_time_100ns\\": 18446744073709551615")!=std::string::npos);Check(timed.find("\\"inspection_duration_ms\\": 0")!=std::string::npos);Check(timed.find("not an atomic snapshot")!=std::string::npos);\n  std::cout<<"checks="<<checks<<" failures=0\\n";std::cout<<json;\n  return 0;\n }catch(const std::exception&e){std::cerr<<e.what()<<"\\n";return 1;}\n}\n',encoding='utf-8')
+          (p/'check_win32.cpp').write_text('#include "win32.h"\n#include <algorithm>\n#include <array>\n#include <cstring>\n#include <filesystem>\n#include <fstream>\n#include <iostream>\n#include <stdexcept>\n#include <thread>\nusing namespace malinka::helper;\nstd::uint64_t checks=0;\nvoid Check(bool ok){++checks;if(!ok)throw std::runtime_error("check "+std::to_string(checks));}\nstd::string ReadFileBytes(const std::filesystem::path&p){std::ifstream f(p,std::ios::binary);return std::string(std::istreambuf_iterator<char>(f),{});}\nint wmain(int argc,wchar_t **argv)\n{\n try{\n  Check(argc==2);const std::filesystem::path root(argv[1]);Check(!std::filesystem::exists(root));Check(std::filesystem::create_directory(root));\n  std::array<wchar_t,32768> own{};Check(GetModuleFileNameW(nullptr,own.data(),static_cast<DWORD>(own.size()))!=0);\n  auto file=InspectFile(own.data());Check(file.error.empty() && file.image.has_value() && file.sha256.size()==64 && !file.recognized_public_release);\n  Check(Wide(Utf8(L"C:\\\\тест\\\\😀.exe"))==L"C:\\\\тест\\\\😀.exe");\n  const auto current=InspectProcess(GetCurrentProcessId());Check(current.process.has_value());const auto &p=*current.process;std::cout<<MakeReport(current)<<std::flush;\n  Check(p.read_only_handle && p.error.empty() && p.loaded_headers_match && !p.loaded_vtable_matches && p.scan.status=="blocked_unknown_build");\n  Check(current.inspection_duration_ms.has_value());Check(!current.inspection_finished_at_utc.empty());Check(p.age_ms_at_inspection_start.has_value());Check(!p.age_ms_at_scan_start);\n  const auto same=InspectProcess(GetCurrentProcessId(),{},p.creation_time_100ns);Check(same.process && same.process->error.empty() && same.process->expected_creation_time_100ns==p.creation_time_100ns);\n  const auto changed=InspectProcess(GetCurrentProcessId(),{},p.creation_time_100ns+1);Check(changed.process && changed.process->scan.status=="blocked_process_identity_changed" && changed.file.path.empty() && changed.process->scan.candidates.empty());\n  const auto unset=InspectProcess(GetCurrentProcessId(),{},0);Check(unset.process && !unset.process->error.empty() && unset.file.path.empty());\n  const auto timed=InspectFileReport(own.data());Check(timed.file.sha256==file.sha256 && timed.inspection_duration_ms.has_value() && !timed.inspection_finished_at_utc.empty());\n  const std::array<std::byte,16> expected{std::byte{1},std::byte{2},std::byte{3}};std::array<std::byte,16> actual{};\n  Check(ReadExact(GetCurrentProcess(),reinterpret_cast<std::uintptr_t>(expected.data()),actual));Check(actual==expected);\n  Check(!ReadExact(GetCurrentProcess(),0,actual));Check(!ReadExact(GetCurrentProcess(),MAX_USER_ADDRESS,actual));Check(!ReadExact(GetCurrentProcess(),reinterpret_cast<std::uintptr_t>(expected.data()),std::span<std::byte>{}));\n  SYSTEM_INFO sys{};GetSystemInfo(&sys);const SIZE_T page=sys.dwPageSize;\n  auto *memory=static_cast<std::byte*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));Check(memory!=nullptr);\n  struct Memory {void*p;~Memory(){VirtualFree(p,0,MEM_RELEASE);}} release{memory};\n  std::fill_n(memory,page*2,std::byte{0x31});DWORD old{};Check(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)!=FALSE);\n  Check(!ReadExact(GetCurrentProcess(),reinterpret_cast<std::uintptr_t>(memory+page-8),actual));\n  Check(VirtualProtect(memory+page,page,PAGE_READWRITE,&old)!=FALSE);\n  constexpr std::uint64_t marker=0x123456780ULL;std::memcpy(memory,&marker,8);\n  auto scan=ScanPrivatePointers(GetCurrentProcess(),marker);Check(scan.candidates.size()<=32);Check(scan.bytes_attempted<=512ULL*1024*1024 && scan.bytes_read<=scan.bytes_attempted);\n  Check(std::find(scan.candidates.begin(),scan.candidates.end(),reinterpret_cast<std::uintptr_t>(memory))!=scan.candidates.end());\n  Check(scan.duration_ms.has_value());Check(!scan.started_at_utc.empty() && !scan.finished_at_utc.empty());\n  std::stop_source cancel;cancel.request_stop();Check(ScanPrivatePointers(GetCurrentProcess(),marker,cancel.get_token()).status=="cancelled");Check(ScanPrivatePointers(GetCurrentProcess(),0).status=="blocked");\n  std::string error;MumbleReader reader;Check(reader.Open(error));Check(reader.Created());Check(reader.Sample().status=="no_writer");\n  Handle writer(OpenFileMappingW(FILE_MAP_WRITE,FALSE,L"MumbleLink"));Check(static_cast<bool>(writer));\n  auto *link=static_cast<MumbleWindows*>(MapViewOfFile(writer.Get(),FILE_MAP_WRITE,0,0,sizeof(MumbleWindows)));Check(link!=nullptr);\n  struct View {void*p;~View(){UnmapViewOfFile(p);}} unmap{link};\n  MumbleWindows value{};value.version=2;value.tick=10;std::copy_n(u"DDNet",6,value.name);std::copy_n(u"0",2,value.identity);\n  constexpr char context[]="127.0.0.1:8303 0";value.context_length=sizeof(context)-1;std::memcpy(value.context,context,sizeof(context));value.avatar_position[0]=3;value.avatar_position[2]=4;\n  std::memcpy(link,&value,sizeof(value));MemoryBarrier();Check(reader.Sample().status=="warming");++link->tick;MemoryBarrier();Check(reader.Sample().status=="live_diagnostic");\n  std::this_thread::sleep_for(std::chrono::milliseconds(270));Check(reader.Sample().status=="stale");link->context_length=0;MemoryBarrier();Check(reader.Sample().status=="offline");\n  Report report=current;report.telemetry=reader.Sample();const auto good=root/L"report-новый.json";Check(WriteNewReport(good.wstring(),report,error));const auto before=ReadFileBytes(good);Check(before.find("\\"enabled\\": false")!=std::string::npos);\n  Check(before.find("\\"saved_at_utc\\": null")==std::string::npos);Check(before.find("\\"schema\\": 2")!=std::string::npos);\n  Check(!WriteNewReport(good.wstring(),report,error));Check(ReadFileBytes(good)==before);\n  Check(!WriteNewReport(L"relative-report.json",report,error));\n  const auto inside=std::filesystem::path(own.data()).parent_path()/L"MALINKA-MUST-NOT-CREATE.json";Check(!std::filesystem::exists(inside));Check(!WriteNewReport(inside.wstring(),report,error));Check(!std::filesystem::exists(inside));\n  const auto junction=root/L"client-junction";\n  const std::wstring command=L"cmd /d /c mklink /J \\""+junction.wstring()+L"\\" \\""+std::filesystem::path(own.data()).parent_path().wstring()+L"\\" >nul";\n  Check(_wsystem(command.c_str())==0);const auto junction_out=junction/L"MALINKA-MUST-NOT-CREATE.json";Check(!WriteNewReport(junction_out.wstring(),report,error));Check(!std::filesystem::exists(inside));\n  const auto after=InspectFile(own.data());Check(after.sha256==file.sha256);\n  std::cout<<"checks="<<checks<<" failures=0 bytes_read="<<scan.bytes_read<<" scan_status="<<scan.status<<"\\n";\n  return 0;\n }catch(const std::exception&e){std::cerr<<e.what()<<"\\n";return 1;}\n}\n',encoding='utf-8')
+          (p/'check_gui.cpp').write_text('// Isolated fixture: compile the ACTUAL GUI implementation, not a model.\n// No game or physical input; only this fixture\'s windows/dialogs are exercised.\n#define wWinMain FixtureUnusedHelperEntry\n#include "main_win32.cpp"\n#undef wWinMain\n#include <atomic>\n#include <chrono>\n#include <filesystem>\n#include <fstream>\n#include <iostream>\n#include <stdexcept>\n\nnamespace\n{\nstd::uint64_t g_Checks = 0;\nvoid Check(bool ok) { ++g_Checks; if(!ok) throw std::runtime_error("GUI check " + std::to_string(g_Checks)); }\nstd::string Bytes(const std::filesystem::path &p)\n{\n\tstd::ifstream f(p, std::ios::binary); return {std::istreambuf_iterator<char>(f), {}};\n}\nBOOL CALLBACK DismissOwnDialog(HWND hwnd, LPARAM value)\n{\n\tDWORD pid{}; GetWindowThreadProcessId(hwnd, &pid);\n\tif(pid != GetCurrentProcessId()) return TRUE;\n\tstd::array<wchar_t, 80> name{}; GetClassNameW(hwnd, name.data(), static_cast<int>(name.size()));\n\tif(std::wstring_view(name.data()) != L"#32770") return TRUE;\n\tconst auto owner = reinterpret_cast<HWND>(value);\n\tif(GetWindow(hwnd, GW_OWNER) == owner) PostMessageW(hwnd, WM_COMMAND, IDOK, 0);\n\treturn TRUE;\n}\nvoid Finish(App &app)\n{\n\tconst auto deadline = MonotonicMs() + 12000;\n\twhile(app.busy && MonotonicMs() < deadline)\n\t{\n\t\tMSG message{};\n\t\twhile(PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))\n\t\t{\n\t\t\tif(message.message == WM_QUIT) throw std::runtime_error("fixture window unexpectedly closed");\n\t\t\tTranslateMessage(&message); DispatchMessageW(&message);\n\t\t}\n\t\tstd::this_thread::sleep_for(std::chrono::milliseconds(5));\n\t}\n\tCheck(!app.busy);\n}\n}\n\nint wmain(int argc, wchar_t **argv)\n{\n\ttry\n\t{\n\t\tCheck(argc == 2); const std::filesystem::path root(argv[1]);\n\t\tCheck(!std::filesystem::exists(root)); Check(std::filesystem::create_directory(root));\n\t\tApp app;\n\t\tWNDCLASSEXW type{}; type.cbSize = sizeof(type); type.hInstance = GetModuleHandleW(nullptr);\n\t\ttype.lpfnWndProc = WindowProc; type.lpszClassName = L"MalinkaActualGuiIsolatedFixture";\n\t\tCheck(RegisterClassExW(&type) != 0);\n\t\tHWND hwnd = CreateWindowExW(0, type.lpszClassName, L"Fixture", WS_OVERLAPPEDWINDOW, 10, 10, 870, 650, nullptr, nullptr, type.hInstance, &app);\n\t\tCheck(hwnd != nullptr);\n\t\tstd::jthread closer([hwnd](std::stop_token stop) {\n\t\t\twhile(!stop.stop_requested())\n\t\t\t{\n\t\t\t\tEnumWindows(DismissOwnDialog, reinterpret_cast<LPARAM>(hwnd));\n\t\t\t\tstd::this_thread::sleep_for(std::chrono::milliseconds(10));\n\t\t\t}\n\t\t});\n\t\tSetWindowTextW(app.Control(PID_EDIT), std::to_wstring(GetCurrentProcessId()).c_str());\n\t\tapp.Attach(); Check(app.busy); Check(!IsWindowEnabled(app.Control(PID_EDIT))); Finish(app);\n\t\tCheck(IsWindowEnabled(app.Control(PID_EDIT)) != FALSE);\n\t\tCheck(app.report.process && app.report.process->error.empty());\n\t\tCheck(app.report.process->scan.status == "blocked_unknown_build");\n\t\tCheck(!app.report.measured_at_utc.empty() && !app.report.inspection_finished_at_utc.empty());\n\t\tCheck(app.report.inspection_duration_ms.has_value());\n\t\tconst auto creation = app.report.process->creation_time_100ns;\n\t\tconst auto real_sha = app.report.file.sha256;\n\t\t// Reproduce the original defect: cached result from a much earlier inspection.\n\t\tapp.report.measured_at_utc = "CACHED-WRONG-TIME";\n\t\tapp.report.file.sha256 = "CACHED-WRONG-HASH";\n\t\tapp.report.process->scan.reason = "CACHED-WRONG-SCAN";\n\t\tconst auto fresh = root / L"fresh-save.json";\n\t\tconst auto duplicate = root / L"must-not-be-concurrent.json";\n\t\tapp.SaveTo(fresh.wstring()); Check(app.busy); Check(!std::filesystem::exists(fresh));\n\t\tapp.SaveTo(duplicate.wstring()); Finish(app);\n\t\tCheck(std::filesystem::exists(fresh)); Check(!std::filesystem::exists(duplicate));\n\t\tconst auto text = Bytes(fresh);\n\t\tCheck(text.find("CACHED-WRONG-") == std::string::npos);\n\t\tCheck(text.find("gui_save_fresh_inspection") != std::string::npos);\n\t\tCheck(text.find(real_sha) != std::string::npos);\n\t\tCheck(text.find("\\"expected_creation_time_100ns\\": " + std::to_string(creation)) != std::string::npos);\n\t\tCheck(app.report.process && app.report.process->expected_creation_time_100ns == creation);\n\t\tCheck(app.report.process->age_ms_at_inspection_start.has_value());\n\t\tCheck(text.find("\\"saved_at_utc\\": null") == std::string::npos);\n\t\tCheck(text.find("\\"enabled\\": false") != std::string::npos);\n\t\t// No replace, even though a fresh rescan is performed.\n\t\tapp.SaveTo(fresh.wstring()); Finish(app); Check(Bytes(fresh) == text);\n\t\t// Edited PID must not silently redirect save to a different target.\n\t\tconst auto edit = root / L"must-not-save-edited-pid.json";\n\t\tSetWindowTextW(app.Control(PID_EDIT), L"0");\n\t\tconst auto last_time = app.report.measured_at_utc;\n\t\tapp.SaveTo(edit.wstring()); Check(!app.busy); Check(!std::filesystem::exists(edit));\n\t\tCheck(app.report.measured_at_utc == last_time);\n\t\tSetWindowTextW(app.Control(PID_EDIT), std::to_wstring(GetCurrentProcessId()).c_str());\n\t\t// Simulate the measured identity mismatch of a reused PID, without reuse races.\n\t\tapp.report.process->creation_time_100ns = creation + 1;\n\t\tconst auto reused = root / L"must-not-save-reused-pid.json";\n\t\tapp.SaveTo(reused.wstring()); Finish(app);\n\t\tCheck(!std::filesystem::exists(reused));\n\t\tCheck(app.report.process && app.report.process->scan.status == "blocked_process_identity_changed");\n\t\tCheck(app.report.file.path.empty()); Check(app.report.process->scan.candidates.empty());\n\t\t// File-only saving must refresh the image too, not export a cached hash.\n\t\tstd::array<wchar_t, 32768> own{};\n\t\tCheck(GetModuleFileNameW(nullptr, own.data(), static_cast<DWORD>(own.size())) != 0);\n\t\tapp.Start(0, own.data()); Finish(app); Check(!app.report.process);\n\t\tapp.report.file.sha256 = "CACHED-WRONG-HASH";\n\t\tconst auto file_only = root / L"fresh-file-save.json";\n\t\tapp.SaveTo(file_only.wstring()); Finish(app);\n\t\tCheck(std::filesystem::exists(file_only));\n\t\tconst auto file_text = Bytes(file_only);\n\t\tCheck(file_text.find("CACHED-WRONG-") == std::string::npos);\n\t\tCheck(file_text.find(real_sha) != std::string::npos);\n\t\tCheck(file_text.find("\\"process\\": null") != std::string::npos);\n\t\tCheck(file_text.find("gui_save_fresh_inspection") != std::string::npos);\n\t\tCheck(IsWindowEnabled(app.Control(SAVE)) != FALSE);\n\t\tcloser.request_stop(); closer.join();\n\t\tSendMessageW(hwnd, WM_CLOSE, 0, 0); Check(!IsWindow(hwnd));\n\t\tstd::cout << "checks=" << g_Checks << " failures=0 actual_GUI_fresh_save=passed identity_mismatch_refused=passed\\n";\n\t\treturn 0;\n\t}\n\tcatch(const std::exception &e) { std::cerr << e.what() << \'\\n\'; return 1; }\n}\n',encoding='utf-8')
+          (p/'CMakeLists.txt').write_text('cmake_minimum_required(VERSION 3.24)\nproject(CompanionIsolatedChecks LANGUAGES CXX)\nset(CMAKE_CXX_STANDARD 20)\nset(CMAKE_CXX_STANDARD_REQUIRED ON)\nset(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")\nfile(TO_CMAKE_PATH "$ENV{GITHUB_WORKSPACE}" REPO_ROOT)\nadd_subdirectory("${REPO_ROOT}/tools/malinka-helper" helper)\nadd_executable(helper-core-check check_core.cpp)\ntarget_link_libraries(helper-core-check PRIVATE malinka-helper-core)\nadd_executable(helper-platform-check check_win32.cpp "${REPO_ROOT}/tools/malinka-helper/win32.cpp")\ntarget_compile_definitions(helper-platform-check PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)\ntarget_compile_options(helper-platform-check PRIVATE /W4 /WX /permissive- /utf-8)\ntarget_link_libraries(helper-platform-check PRIVATE malinka-helper-core bcrypt)\n\nadd_executable(helper-gui-check check_gui.cpp "${REPO_ROOT}/tools/malinka-helper/win32.cpp")\ntarget_compile_definitions(helper-gui-check PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)\ntarget_compile_options(helper-gui-check PRIVATE /W4 /WX /permissive- /utf-8)\ntarget_link_libraries(helper-gui-check PRIVATE malinka-helper-core bcrypt user32 gdi32 comdlg32 shell32)\n',encoding='utf-8')
+      - name: MSVC build, actual GUI fresh-save checks, public startup acquisition, diagnostic package
+        shell: python
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          try:
+              import base64,ctypes,hashlib,io,json,os,re,subprocess,time,urllib.request,zipfile
+              from ctypes import wintypes
+              from pathlib import Path
+
+              out=Path('build-helper-results');out.mkdir(exist_ok=False)
+              def command(args,name,timeout=120):
+                  r=subprocess.run([str(x) for x in args],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,errors='replace',timeout=timeout)
+                  (out/(name+'.log')).write_text(r.stdout,encoding='utf-8')
+                  (out/(name+'.exit')).write_text(str(r.returncode)+'\n')
+                  print(r.stdout)
+                  if r.returncode:
+                      msg=r.stdout[-45000:].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+                      print('::error title='+name+'::'+msg)
+                      raise RuntimeError(name+' exit '+str(r.returncode))
+                  match=re.search(r'checks=(\d+) failures=0',r.stdout)
+                  if match:print('::notice title='+name+'-passed::exit0; '+match.group(0))
+                  return r.stdout
+
+              command(['cmake','-S','tools/malinka-helper','-B','build-helper-release','-A','x64'],'standalone-configure')
+              command(['cmake','--build','build-helper-release','--config','Release','--parallel','2'],'standalone-build',300)
+              command(['cmake','-S','build-helper-check-source','-B','build-helper-native','-A','x64'],'configure')
+              command(['cmake','--build','build-helper-native','--config','Release','--parallel','2'],'build',300)
+              core_log=command(['build-helper-native/Release/helper-core-check.exe'],'core-check')
+              win_log=command(['build-helper-native/Release/helper-platform-check.exe',Path(os.environ['RUNNER_TEMP'])/('malinka-helper-check-'+os.environ['GITHUB_RUN_ID'])],'win32-check')
+              gui_root=Path(os.environ['RUNNER_TEMP'])/('malinka-helper-actual-gui-check-'+os.environ['GITHUB_RUN_ID'])
+              gui_log=command(['build-helper-native/Release/helper-gui-check.exe',gui_root],'actual-gui-fresh-save-check')
+              for name in ['fresh-save.json','fresh-file-save.json']:
+                  v=json.loads((gui_root/name).read_text(encoding='utf-8'))
+                  assert v['schema']==2 and v['inspection_trigger']=='gui_save_fresh_inspection'
+                  assert v['saved_at_utc']>=v['inspection_finished_at_utc']>=v['measured_at_utc']
+                  assert v['automatic_avoid']['enabled'] is False
+              app=Path('build-helper-release/Release/MalinkaHelper.exe').resolve()
+              exe=app.read_bytes()
+              assert 0<len(exe)<8*1024*1024
+
+              # Read imports from our just-built PE without adding a dependency to the tool.
+              import struct
+              u16=lambda at:struct.unpack_from('<H',exe,at)[0]
+              u32=lambda at:struct.unpack_from('<I',exe,at)[0]
+              u64=lambda at:struct.unpack_from('<Q',exe,at)[0]
+              nt=u32(60);opt=nt+24;secs=[]
+              for n in range(u16(nt+6)):
+                  s=opt+u16(nt+20)+40*n
+                  secs.append((u32(s+12),u32(s+20),u32(s+16)))
+              def raw(rva,length=1):
+                  for virtual,offset,size in secs:
+                      if virtual<=rva and rva-virtual+length<=size:
+                          at=offset+rva-virtual
+                          assert at+length<=len(exe)
+                          return at
+                  raise RuntimeError('unmapped import RVA')
+              def cstring(at):
+                  end=exe.find(b'\0',at,at+4096)
+                  assert end>=at
+                  return exe[at:end].decode('ascii')
+              imports=[]
+              desc=raw(u32(opt+112+8),20)
+              for n in range(128):
+                  at=desc+n*20;assert at+20<=len(exe)
+                  if exe[at:at+20]==b'\0'*20:break
+                  thunk=u32(at) or u32(at+16)
+                  for j in range(4096):
+                      value=u64(raw(thunk+j*8,8))
+                      if value==0:break
+                      if not value>>63:imports.append(cstring(raw(value,3)+2))
+                  else:raise RuntimeError('unterminated import table')
+              else:raise RuntimeError('unterminated DLL imports')
+              forbidden={'WriteProcessMemory','VirtualAllocEx','VirtualProtectEx','CreateRemoteThread','NtWriteVirtualMemory','SendInput','SetWindowsHookExW','SetWindowsHookExA','AdjustTokenPrivileges'}
+              assert not set(imports)&forbidden
+              assert {'OpenProcess','ReadProcessMemory','CreateFileMappingW','MapViewOfFile'}<=set(imports)
+
+              reports=Path('build-helper-reports');reports.mkdir(exist_ok=False)
+              def cli(args):
+                  return subprocess.run([str(app),*map(str,args)],timeout=30).returncode
+              self_report=reports/'self.json'
+              assert cli(['--inspect-file',app,'--report',self_report.resolve()])==0
+              self_data=json.loads(self_report.read_text(encoding='utf-8'))
+              assert self_data['file']['sha256']==hashlib.sha256(exe).hexdigest()
+              assert not self_data['file']['recognized_public_release'] and not self_data['automatic_avoid']['enabled']
+              previous=self_report.read_bytes()
+              assert cli(['--inspect-file',app,'--report',self_report.resolve()])==3 and self_report.read_bytes()==previous
+              assert cli(['--pid','0','--report',(reports/'bad.json').resolve()])==2
+              assert cli(['--pid','4294967296','--report',(reports/'bad2.json').resolve()])==2
+
+              # First check the exact public release as a FILE; owned menu/startup acquisition follows separately.
+              req=urllib.request.Request('https://api.github.com/repos/BestProjectTeam/BestClient/releases/assets/730984669',headers={'User-Agent':'Malinka-helper-native-check'})
+              with urllib.request.urlopen(req,timeout=30) as f:asset=json.load(f)
+              assert asset['name']=='BestClient-windows.zip' and asset['size']==65165594
+              with urllib.request.urlopen(asset['browser_download_url'],timeout=90) as f:data=f.read(asset['size']+1)
+              assert len(data)==asset['size'] and hashlib.sha256(data).hexdigest()=='51688c041453d989522658cf46ae21b08ef46b28786da204b82e46c5166d7059'
+              z=zipfile.ZipFile(io.BytesIO(data))
+              entry=z.getinfo('bestclient-3.1.1-win64/DDNet.exe');assert entry.file_size==26206720
+              image=z.read(entry);image_sha=hashlib.sha256(image).hexdigest()
+              assert image_sha=='50430c5f1081863b956fd5f0d8e1c6b88d1aa27f79e199c4053e86a5b632902f'
+              folder=Path(os.environ['RUNNER_TEMP'])/('malinka-official-file-check-'+os.environ['GITHUB_RUN_ID']);folder.mkdir(exist_ok=False)
+              image_file=folder/'DDNet.exe';image_file.write_bytes(image)
+              measured=reports/'public-official-file.json'
+              assert cli(['--inspect-file',image_file,'--report',measured.resolve()])==0
+              r=json.loads(measured.read_text(encoding='utf-8'))
+              assert r['file']['recognized_public_release'] and r['file']['vtable_file_verified'] and not r['automatic_avoid']['enabled']
+              assert r['layout']['gameclient_vtable_rva']==19904440 and r['layout']['character_state_offset'] is None
+              assert cli(['--inspect-file',image_file,'--report',folder/'MUST-NOT-CREATE.json'])==3
+              assert not (folder/'MUST-NOT-CREATE.json').exists() and hashlib.sha256(image_file.read_bytes()).hexdigest()==image_sha
+
+              # Native Win32 window smoke: own helper only, no physical keys or game.
+              u=ctypes.WinDLL('user32',use_last_error=True)
+              u.GetWindowThreadProcessId.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.DWORD)]
+              u.GetDlgItem.argtypes=[wintypes.HWND,ctypes.c_int];u.GetDlgItem.restype=wintypes.HWND
+              u.SendMessageW.argtypes=[wintypes.HWND,wintypes.UINT,wintypes.WPARAM,wintypes.LPARAM];u.SendMessageW.restype=ctypes.c_ssize_t
+              u.PostMessageW.argtypes=[wintypes.HWND,wintypes.UINT,wintypes.WPARAM,wintypes.LPARAM]
+              u.GetWindowTextW.argtypes=[wintypes.HWND,wintypes.LPWSTR,ctypes.c_int]
+              u.MoveWindow.argtypes=[wintypes.HWND,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_int,wintypes.BOOL]
+              u.GetWindowRect.argtypes=[wintypes.HWND,ctypes.POINTER(wintypes.RECT)]
+              u.GetWindowLongPtrW.argtypes=[wintypes.HWND,ctypes.c_int];u.GetWindowLongPtrW.restype=ctypes.c_ssize_t
+              CB=ctypes.WINFUNCTYPE(wintypes.BOOL,wintypes.HWND,wintypes.LPARAM)
+              u.EnumWindows.argtypes=[CB,wintypes.LPARAM]
+              def window_for(pid):
+                  found=[]
+                  @CB
+                  def callback(hwnd,unused):
+                      actual=wintypes.DWORD();u.GetWindowThreadProcessId(hwnd,ctypes.byref(actual))
+                      if actual.value==pid:found.append(hwnd)
+                      return True
+                  u.EnumWindows(callback,0)
+                  return next((w for w in found if u.GetDlgItem(w,106)),None)
+              u.SendMessageTimeoutW.argtypes=[wintypes.HWND,wintypes.UINT,wintypes.WPARAM,wintypes.LPARAM,wintypes.UINT,wintypes.UINT,ctypes.POINTER(ctypes.c_size_t)]
+              u.SendMessageTimeoutW.restype=ctypes.c_ssize_t
+              def text(hwnd):
+                  b=ctypes.create_unicode_buffer(32768);result=ctypes.c_size_t()
+                  # GetWindowTextW cannot read another process's EDIT control; WM_GETTEXT can.
+                  assert u.SendMessageTimeoutW(hwnd,0x000D,len(b),ctypes.addressof(b),2,2000,ctypes.byref(result))
+                  return b.value
+              proc=subprocess.Popen([str(app)])
+              try:
+                  end=time.monotonic()+12;hwnd=None
+                  while time.monotonic()<end and proc.poll() is None:
+                      hwnd=window_for(proc.pid)
+                      if hwnd:break
+                      time.sleep(.05)
+                  assert hwnd,'helper did not create a window'
+                  assert u.MoveWindow(hwnd,50,50,1000,700,True)
+                  rect=wintypes.RECT();assert u.GetWindowRect(hwnd,ctypes.byref(rect));assert rect.right-rect.left==1000
+                  pid_text=ctypes.create_unicode_buffer(str(proc.pid))
+                  u.SendMessageW(u.GetDlgItem(hwnd,106),0x000C,0,ctypes.addressof(pid_text))
+                  assert u.PostMessageW(hwnd,0x0111,103,0)
+                  end=time.monotonic()+12
+                  while time.monotonic()<end:
+                      if 'blocked_unknown_build' in text(u.GetDlgItem(hwnd,108)):break
+                      time.sleep(.05)
+                  else:raise RuntimeError('native GUI inspection did not finish: '+text(u.GetDlgItem(hwnd,108)))
+                  u.SendMessageW(u.GetDlgItem(hwnd,105),0x00F5,0,0) # BM_CLICK, own checkbox
+                  assert u.GetWindowLongPtrW(hwnd,-20)&8 # WS_EX_TOPMOST
+                  assert u.PostMessageW(hwnd,0x0010,0,0)
+                  assert proc.wait(timeout=10)==0
+              finally:
+                  if proc.poll() is None:proc.terminate();proc.wait(timeout=10)
+
+              # Exact public image: independently inspect static vtable writes and an owned
+              # ordinary menu/startup process. No keys, patches, injection, or game-file writes.
+              # The release's OWN normal startup files are confined to this disposable runner.
+              pe=struct.unpack_from('<I',image,60)[0];opt_off=pe+24
+              sections=[]
+              for n in range(struct.unpack_from('<H',image,pe+6)[0]):
+                  at=opt_off+struct.unpack_from('<H',image,pe+20)[0]+n*40
+                  sections.append({'name':image[at:at+8].split(b'\0')[0].decode('ascii'),
+                                   'rva':struct.unpack_from('<I',image,at+12)[0],
+                                   'raw_size':struct.unpack_from('<I',image,at+16)[0],
+                                   'raw':struct.unpack_from('<I',image,at+20)[0]})
+              text_sec=next(s for s in sections if s['name']=='.text')
+              text_bytes=image[text_sec['raw']:text_sec['raw']+text_sec['raw_size']]
+              xrefs=[]
+              for i in range(len(text_bytes)-7):
+                  if 0x48<=text_bytes[i]<=0x4f and text_bytes[i+1]==0x8d and text_bytes[i+2]&0xc7==5:
+                      site=text_sec['rva']+i
+                      target=site+7+struct.unpack_from('<i',text_bytes,i+3)[0]
+                      if target==19904440:
+                          begin=max(0,i-96);end=min(len(text_bytes),i+224)
+                          xrefs.append({'instruction_rva':site,'instruction_file_offset':text_sec['raw']+i,
+                                        'snippet_rva':text_sec['rva']+begin,'snippet_hex':text_bytes[begin:end].hex()})
+                          assert len(xrefs)<=32
+              static_evidence={'kind':'exact-public-image-static-vtable-xrefs-NOT-character-validation',
+                               'sha256':image_sha,'vtable_rva':19904440,'xrefs':xrefs}
+              (out/'public-static-root-evidence.json').write_text(json.dumps(static_evidence,indent=2)+'\n',encoding='utf-8')
+              for n,x in enumerate(xrefs):
+                  print('::notice title=public-vtable-xref-'+str(n)+'::'+json.dumps(x,separators=(',',':')))
+
+              release_root=Path(os.environ['RUNNER_TEMP'])/('malinka-owned-official-startup-'+os.environ['GITHUB_RUN_ID'])
+              release_root.mkdir(exist_ok=False)
+              assert len(z.infolist())<=20000 and sum(item.file_size for item in z.infolist())<=512*1024*1024
+              for item in z.infolist():
+                  assert not item.filename.startswith(('/', '\\'))
+                  dest=(release_root/item.filename).resolve()
+                  assert dest.is_relative_to(release_root.resolve()),item.filename
+              z.extractall(release_root)
+              game=release_root/'bestclient-3.1.1-win64'/'DDNet.exe'
+              assert hashlib.sha256(game.read_bytes()).hexdigest()==image_sha
+              # Normal documented console startup arguments only, confined to this CI launch.
+              # The DELIVERED helper's launch behavior remains no extra arguments or config.
+              flags=['cl_save_settings 0','gfx_fullscreen 0','gfx_backend OpenGL','gfx_gl_major 1','gfx_gl_minor 1','snd_enable 0','cl_show_welcome 0']
+              startup={'kind':'owned-official-startup-menu-only-not-live-map-validation','sha256':image_sha,
+                       'arguments':flags,'samples':[],'gameplay':'not verified in-game','input_sent':False,'terminated_owned_fixture':False}
+              game_log=out/'owned-official-startup.log'
+              with game_log.open('wb') as output:
+                  owned=subprocess.Popen([str(game),*flags],cwd=game.parent,stdout=output,stderr=subprocess.STDOUT)
+                  try:
+                      launched=time.monotonic()
+                      for n,delay in enumerate([0,3,8]):
+                          time.sleep(max(0,launched+delay-time.monotonic()))
+                          if owned.poll() is not None:
+                              startup['exit_before_sample']=owned.returncode;break
+                          report_file=(reports/('owned-official-startup-'+str(n)+'.json')).resolve()
+                          exit_code=cli(['--pid',owned.pid,'--report',report_file])
+                          item={'elapsed_ms':round((time.monotonic()-launched)*1000),'helper_exit':exit_code}
+                          if report_file.exists():
+                              measured=json.loads(report_file.read_text(encoding='utf-8'))
+                              item['sha256']=measured['file']['sha256'];item['process']=measured['process']
+                              item['automatic_avoid_enabled']=measured['automatic_avoid']['enabled']
+                              assert item['automatic_avoid_enabled'] is False
+                          startup['samples'].append(item)
+                  finally:
+                      if owned.poll() is None:
+                          @CB
+                          def close_owned(hwnd,unused):
+                              actual=wintypes.DWORD();u.GetWindowThreadProcessId(hwnd,ctypes.byref(actual))
+                              if actual.value==owned.pid:u.PostMessageW(hwnd,0x0010,0,0)
+                              return True
+                          u.EnumWindows(close_owned,0)
+                          try:owned.wait(timeout=8)
+                          except subprocess.TimeoutExpired:
+                              startup['terminated_owned_fixture']=True;owned.terminate();owned.wait(timeout=10)
+                      startup['final_exit']=owned.returncode
+              assert hashlib.sha256(game.read_bytes()).hexdigest()==image_sha
+              startup['exe_unchanged']=True
+              startup['root_pointer_match_seen']=any(
+                  sample.get('process') and sample['process']['root_scan']['candidate_runtime_vas'] for sample in startup['samples'])
+              (out/'owned-official-startup.json').write_text(json.dumps(startup,indent=2)+'\n',encoding='utf-8')
+              def sample_process(sample):return sample.get('process') or {}
+              compact={'root_pointer_match_seen':startup['root_pointer_match_seen'],'exe_unchanged':startup['exe_unchanged'],
+                       'final_exit':startup['final_exit'],'terminated_owned_fixture':startup['terminated_owned_fixture'],
+                       'samples':[{'elapsed_ms':s['elapsed_ms'],'helper_exit':s['helper_exit'],
+                                   'age_ms_at_scan_start':sample_process(s).get('age_ms_at_scan_start'),
+                                   'status':sample_process(s).get('root_scan',{}).get('status'),
+                                   'count':len(sample_process(s).get('root_scan',{}).get('candidate_runtime_vas',[])),
+                                   'bytes_read':sample_process(s).get('root_scan',{}).get('bytes_read')} for s in startup['samples']],
+                       'gameplay':'not verified in-game','input_sent':False}
+              print('::notice title=owned-official-startup::'+json.dumps(compact,separators=(',',':')))
+
+              commit=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+              assert subprocess.run(['git','diff','--exit-code','--','tools/malinka-helper'],stdout=subprocess.PIPE).returncode==0
+              summary={
+               'kind':'native-external-helper-check','source_commit':commit,'platform':'windows-2022-msvc-x64',
+               'core_checks':int(re.search(r'checks=(\d+) failures=0',core_log).group(1)),
+               'win32_checks':int(re.search(r'checks=(\d+) failures=0',win_log).group(1)),
+               'actual_gui_checks':int(re.search(r'checks=(\d+) failures=0',gui_log).group(1)),
+               'actual_gui_fresh_save_and_pid_identity':True,
+               'official_startup_menu_probe':compact,
+               'native_build_exit':0,'core_exit':0,'win32_exit':0,
+               'official_image_file_identity_and_rtti':True,'unknown_build_gate':True,'new_report_no_replace':True,
+               'junction_and_client_directory_refusal':True,'gui_created_resized_inspected_pinned_closed':True,
+               'forbidden_imports':sorted(set(imports)&forbidden),'exe_sha256':hashlib.sha256(exe).hexdigest(),'exe_bytes':len(exe),
+               'automatic_avoid':'BLOCKED / NOT IMPLEMENTED','gameplay':'not verified in-game','official_badge':'not verified',
+              }
+              (out/'checks.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
+              (out/'imports.json').write_text(json.dumps(sorted(set(imports)),indent=2)+'\n',encoding='utf-8')
+
+              package=Path('build-helper-delivery');package.mkdir(exist_ok=False)
+              package_file=package/'MalinkaHelper-0.1.1-diagnostic-windows-x64.zip'
+              paths=subprocess.check_output(['git','ls-tree','-r','--name-only','HEAD','--','tools/malinka-helper'],text=True).splitlines()
+              assert paths
+              source_hashes={}
+              with zipfile.ZipFile(package_file,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+                  z.writestr('MalinkaHelper.exe',exe)
+                  for source in paths:
+                      data=Path(source).read_bytes()
+                      assert data==subprocess.check_output(['git','show','HEAD:'+source]), source+' differs from canonical Git bytes'
+                      relative=source.removeprefix('tools/malinka-helper/')
+                      source_hashes[relative]=hashlib.sha256(data).hexdigest()
+                      z.writestr('source/'+relative,data)
+                  z.writestr('README-RU.md',Path('tools/malinka-helper/README.md').read_bytes())
+                  z.writestr('LICENSE',Path('LICENSE').read_bytes())
+                  z.writestr('CHECKS.json',json.dumps(summary,indent=2)+'\n')
+                  z.writestr('SOURCE-SHA256.json',json.dumps(source_hashes,indent=2,sort_keys=True)+'\n')
+              blob=package_file.read_bytes();assert len(blob)<8*1024*1024
+              metadata={'source_commit':commit,'zip_name':package_file.name,'zip_bytes':len(blob),'zip_sha256':hashlib.sha256(blob).hexdigest(),'exe_sha256':summary['exe_sha256'],'exe_bytes':len(exe),'source_files':len(paths),'checks':summary}
+              # Bounded unreferenced blob transport: no binary commit/tree/ref/release.
+              url='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs'
+              payload=json.dumps({'encoding':'base64','content':base64.b64encode(blob).decode('ascii')}).encode('utf-8')
+              request=urllib.request.Request(url,data=payload,method='POST',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','User-Agent':'Malinka-helper-native-check','Content-Type':'application/json'})
+              with urllib.request.urlopen(request,timeout=60) as f:created=json.load(f)
+              metadata['transport_blob_sha']=created['sha']
+              (package/'DELIVERY.json').write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
+              msg=json.dumps(metadata,separators=(',',':')).replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print('::notice title=malinka-helper-native::'+msg)
+          except BaseException:
+              import traceback
+              message=traceback.format_exc().replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+              print('::error title=helper-ci-exception::'+message[:3500])
+              raise
+      - name: Keep diagnostic package and bounded acquisition logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: malinka-helper-fresh-diagnostic-windows-x64
+          path: |
+            build-helper-delivery/
+            build-helper-results/
+            build-helper-reports/
+          retention-days: 7
+          if-no-files-found: warn

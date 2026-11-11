@@ -56,6 +56,11 @@ std::uint64_t MonotonicMs()
 }
 namespace
 {
+std::uint64_t FileTimeNow100ns()
+{
+	FILETIME now{}; GetSystemTimePreciseAsFileTime(&now);
+	return (static_cast<std::uint64_t>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
+}
 std::optional<std::wstring> FinalPath(HANDLE handle)
 {
 	std::vector<wchar_t> buf(32768);
@@ -177,7 +182,7 @@ bool ReadExact(HANDLE process, std::uint64_t address, std::span<std::byte> outpu
 	SIZE_T read{};
 	return ReadProcessMemory(process, reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address)), output.data(), output.size(), &read) != FALSE && read == output.size();
 }
-ScanReport ScanPrivatePointers(HANDLE process, std::uint64_t pointer, std::stop_token stop)
+static ScanReport ScanPrivatePointersImpl(HANDLE process, std::uint64_t pointer, std::stop_token stop)
 {
 	ScanReport out;
 	if(!UserRange(pointer, 8)) { out.status = "blocked"; out.reason = "Invalid validated vtable pointer"; return out; }
@@ -244,9 +249,21 @@ ScanReport ScanPrivatePointers(HANDLE process, std::uint64_t pointer, std::stop_
 	return out;
 }
 
-Report InspectProcess(DWORD pid, std::stop_token stop)
+ScanReport ScanPrivatePointers(HANDLE process, std::uint64_t pointer, std::stop_token stop)
 {
+	const auto start = MonotonicMs(); const auto started_at = UtcNow();
+	auto out = ScanPrivatePointersImpl(process, pointer, stop);
+	out.started_at_utc = started_at; out.finished_at_utc = UtcNow(); out.duration_ms = MonotonicMs() - start;
+	if(out.status == "complete" && out.candidates.empty())
+		out.reason = "No pointer matches during this private-memory enumeration; not an atomic snapshot. Initialization may still be in progress: recheck after the client is ready";
+	return out;
+}
+
+static Report InspectProcessImpl(DWORD pid, std::stop_token stop, std::optional<std::uint64_t> expected_creation_time_100ns)
+{
+	const auto started_100ns = FileTimeNow100ns();
 	Report out; out.measured_at_utc = UtcNow(); out.process.emplace(); auto &p = *out.process; p.pid = pid;
+	p.expected_creation_time_100ns = expected_creation_time_100ns;
 	try
 	{
 		// Deliberately NO VM_WRITE/VM_OPERATION/CREATE_THREAD/ALL_ACCESS/debug privilege.
@@ -261,6 +278,10 @@ Report InspectProcess(DWORD pid, std::stop_token stop)
 		FILETIME creation{}, exit{}, kernel{}, user{};
 		if(!GetProcessTimes(process.Get(), &creation, &exit, &kernel, &user)) { p.error = WinError("GetProcessTimes"); return out; }
 		p.creation_time_100ns = (static_cast<std::uint64_t>(creation.dwHighDateTime) << 32) | creation.dwLowDateTime;
+		p.age_ms_at_inspection_start = ElapsedFileTimeMs(p.creation_time_100ns, started_100ns);
+		if(expected_creation_time_100ns && (*expected_creation_time_100ns == 0 || *expected_creation_time_100ns != p.creation_time_100ns))
+		{ p.error = "Process identity changed (PID reuse); attach again explicitly"; p.scan.status = "blocked_process_identity_changed"; return out; }
+		if(stop.stop_requested()) { p.error = "Inspection cancelled"; p.scan.status = "cancelled"; return out; }
 		std::array<wchar_t, 32768> path{}; DWORD length = static_cast<DWORD>(path.size());
 		if(!QueryFullProcessImageNameW(process.Get(), 0, path.data(), &length) || length == 0 || length >= path.size())
 		{ p.error = WinError("QueryFullProcessImageNameW"); return out; }
@@ -294,9 +315,29 @@ Report InspectProcess(DWORD pid, std::stop_token stop)
 		{ p.scan.status = "blocked_unknown_build"; p.scan.reason = "SHA-256 is not the specifically audited official image; no game addresses will be read"; return out; }
 		p.loaded_vtable_matches = MatchLoadedVtable(process.Get(), p.module_base, p.module_size);
 		if(!p.loaded_vtable_matches) { p.error = "Loaded vtable does not match the measured, ASLR-adjusted profile"; return out; }
+		p.age_ms_at_scan_start = ElapsedFileTimeMs(p.creation_time_100ns, FileTimeNow100ns());
 		p.scan = ScanPrivatePointers(process.Get(), p.module_base + PUBLIC_311.vtable_rva, stop);
+		if(WaitForSingleObject(process.Get(), 0) != WAIT_TIMEOUT)
+		{
+			p.scan.candidates.clear(); p.scan.status = "exited";
+			p.scan.reason = "Target exited or liveness check failed before inspection finished"; p.error = p.scan.reason;
+		}
 	}
 	catch(const std::exception &e) { p.error = e.what(); }
+	return out;
+}
+Report InspectProcess(DWORD pid, std::stop_token stop, std::optional<std::uint64_t> expected_creation_time_100ns)
+{
+	const auto start = MonotonicMs();
+	auto out = InspectProcessImpl(pid, stop, expected_creation_time_100ns);
+	out.inspection_finished_at_utc = UtcNow(); out.inspection_duration_ms = MonotonicMs() - start;
+	return out;
+}
+Report InspectFileReport(const std::wstring &path)
+{
+	const auto start = MonotonicMs();
+	Report out; out.measured_at_utc = UtcNow(); out.file = InspectFile(path);
+	out.inspection_finished_at_utc = UtcNow(); out.inspection_duration_ms = MonotonicMs() - start;
 	return out;
 }
 std::optional<DWORD> LaunchClient(const std::wstring &path, std::string &error)
@@ -372,7 +413,8 @@ bool WriteNewReport(const std::wstring &path, const Report &report, std::string 
 		if(!resolved_parent) { error = "Cannot resolve report directory"; return false; }
 		if(protected_directory && (EqualPath(*resolved_parent, *protected_directory) || InsideDirectory(*resolved_parent, *protected_directory)))
 		{ error = "Report output inside the inspected client's directory is forbidden; choose a different folder"; return false; }
-		const auto text = MakeReport(report);
+		Report saved = report; saved.saved_at_utc = UtcNow();
+		const auto text = MakeReport(saved);
 		if(text.size() > 128U * 1024U) { error = "Report exceeded the output limit"; return false; }
 		Handle file(CreateFileW(path.c_str(), GENERIC_WRITE | DELETE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
 		if(!file) { error = WinError("Create NEW report (existing files are never replaced)"); return false; }

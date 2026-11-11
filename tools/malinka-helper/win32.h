@@ -39,7 +39,10 @@ std::string UtcNow();
 std::uint64_t MonotonicMs();
 
 FileReport InspectFile(const std::wstring &path);
-Report InspectProcess(DWORD pid, std::stop_token stop = {});
+Report InspectFileReport(const std::wstring &path);
+// A rescan for saving must retain the previously measured process identity.
+// A reused PID is rejected BEFORE inspecting its image or any game addresses.
+Report InspectProcess(DWORD pid, std::stop_token stop = {}, std::optional<std::uint64_t> expected_creation_time_100ns = {});
 // This function ONLY reads. Partial reads and non-user-mode ranges fail.
 bool ReadExact(HANDLE process, std::uint64_t address, std::span<std::byte> output);
 ScanReport ScanPrivatePointers(HANDLE process, std::uint64_t pointer, std::stop_token stop = {});

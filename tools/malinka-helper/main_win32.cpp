@@ -35,7 +35,7 @@ struct App
 	HWND window{};
 	HFONT font{};
 	std::array<HWND, 9> controls{};
-	std::wstring client_path;
+	std::wstring client_path, save_destination;
 	Report report;
 	MumbleReader mumble;
 	std::mutex mutex;
@@ -80,7 +80,11 @@ struct App
 		std::wstring text = L"АВТОМАТИЧЕСКИЙ AVOID FREEZE: НЕ ГОТОВ / ЗАБЛОКИРОВАН\r\n"
 			L"Это отдельный диагностический помощник, не модифицированный клиент.\r\n"
 			L"Нет записи в процесс, DLL-инъекций, отправки клавиш или подмены badge.\r\n\r\n";
-		if(busy) text += L"Идёт ограниченная проверка выбранного процесса…\r\n\r\n";
+		if(busy) text += save_destination.empty() ? L"Идёт ограниченная проверка выбранного процесса…\r\n\r\n" : L"Перед сохранением выполняется НОВАЯ проверка, не копия старой…\r\n\r\n";
+		if(!report.measured_at_utc.empty())
+			text += L"Начало последней проверки (UTC): " + Wide(report.measured_at_utc) + L"\r\n";
+		if(!report.inspection_finished_at_utc.empty())
+			text += L"Конец проверки (UTC): " + Wide(report.inspection_finished_at_utc) + L"\r\n";
 		if(!report.file.path.empty())
 		{
 			text += L"EXE: " + Wide(report.file.path) + L"\r\nSHA-256: " + Wide(report.file.sha256) + L"\r\n";
@@ -92,17 +96,24 @@ struct App
 			const auto &p = *report.process;
 			text += L"\r\nPID: " + std::to_wstring(p.pid) + L"; main module: " + (UserRange(p.module_base, p.module_size) ? Wide(Hex(p.module_base)) : L"unavailable") + L"\r\n";
 			text += L"Проверка заголовков загруженного образа: " + std::wstring(p.loaded_headers_match ? L"совпали" : L"не подтверждены") + L"\r\n";
+			if(p.age_ms_at_inspection_start)
+				text += L"Возраст процесса при начале проверки: " + std::to_wstring(*p.age_ms_at_inspection_start) + L" ms\r\n";
 			text += L"Поиск CGameClient: " + Wide(p.scan.status) + L"; кандидатов: " + std::to_wstring(p.scan.candidates.size()) + L"\r\n";
+			if(p.age_ms_at_scan_start)
+				text += L"Возраст процесса при начале поиска: " + std::to_wstring(*p.age_ms_at_scan_start) + L" ms\r\n";
 			text += Wide(p.scan.reason) + L"\r\n";
 			if(!p.error.empty()) text += L"Ошибка процесса: " + Wide(p.error) + L"\r\n";
 		}
 		text += L"\r\nКандидат по vtable НЕ означает проверенное состояние персонажа.\r\n"
 			L"Нет подтверждённых полей физики/карты/настроек ввода — управление не включается.\r\n"
 			L"Наличие официального значка у других игроков отдельно не проверено.\r\n"
+			L"Сохранение отчёта заново проверяет тот же процесс (PID + время создания).\r\n"
+			L"Нажимайте после загрузки карты; старое измерение с запуска не сохраняется.\r\n"
 			L"Отчёт сохраняется только по вашему выбору, под новым именем, вне папки клиента.\r\n"
 			L"Закрытие помощника не завершает клиент.\r\n";
 		SetWindowTextW(Control(STATE_TEXT), text.c_str());
 		EnableWindow(Control(CHOOSE), !busy); EnableWindow(Control(LAUNCH), !busy && !client_path.empty());
+		EnableWindow(Control(PID_EDIT), !busy);
 		EnableWindow(Control(ATTACH), !busy); EnableWindow(Control(SAVE), !busy && !report.file.path.empty());
 	}
 	void Sample()
@@ -125,28 +136,42 @@ struct App
 		client_path = path.data(); SetWindowTextW(Control(PATH_TEXT), client_path.c_str());
 		Start(0, client_path);
 	}
-	void Start(DWORD pid, std::wstring path = {})
+	void Start(DWORD pid, std::wstring path = {}, std::optional<std::uint64_t> expected_creation = {}, std::wstring destination = {})
 	{
 		if(busy) return;
 		if(worker.joinable()) worker.join();
+		save_destination = std::move(destination);
 		busy = true; Display();
-		worker = std::jthread([this, pid, path = std::move(path)](std::stop_token stop) {
-			Report next;
-			try
-			{
-				if(pid) next = InspectProcess(pid, stop);
-				else { next.measured_at_utc = UtcNow(); next.file = InspectFile(path); }
-			}
-			catch(const std::exception &e) { next.file.error = e.what(); }
-			catch(...) { next.file.error = "Unexpected inspection failure"; }
-			{ std::lock_guard lock(mutex); pending = std::move(next); }
-			PostMessageW(window, WORK_DONE, 0, 0);
-		});
+		try
+		{
+			worker = std::jthread([this, pid, path = std::move(path), expected_creation, saving = !save_destination.empty()](std::stop_token stop) {
+				Report next;
+				try
+				{
+					if(pid) next = InspectProcess(pid, stop, expected_creation);
+					else next = InspectFileReport(path);
+				}
+				catch(const std::exception &e) { next.file.error = e.what(); }
+				catch(...) { next.file.error = "Unexpected inspection failure"; }
+				next.inspection_trigger = saving ? "gui_save_fresh_inspection" : "gui_explicit_inspection";
+				{ std::lock_guard lock(mutex); pending = std::move(next); }
+				PostMessageW(window, WORK_DONE, 0, 0);
+			});
+		}
+		catch(...) { busy = false; save_destination.clear(); Display(); throw; }
 	}
 	void Complete()
 	{
-		{ std::lock_guard lock(mutex); if(pending) { report = std::move(*pending); pending.reset(); } }
+		{ std::lock_guard lock(mutex); if(!pending) return; report = std::move(*pending); pending.reset(); }
+		if(worker.joinable()) worker.join();
 		busy = false; Sample(); Display();
+		const auto destination = std::exchange(save_destination, {});
+		if(destination.empty()) return;
+		// Do not fall back to stale cached image/path/state after an exit or PID reuse.
+		if(report.file.path.empty()) { Message("Fresh inspection could not identify the same client. Report NOT saved; attach again explicitly."); return; }
+		std::string error;
+		if(!WriteNewReport(destination, report, error)) Message(error);
+		else Message("NEW inspection saved (not the cached launch scan). Automatic Avoid Freeze remains BLOCKED.");
 	}
 	void Attach()
 	{
@@ -165,8 +190,22 @@ struct App
 		SetWindowTextW(Control(PID_EDIT), std::to_wstring(*pid).c_str());
 		Start(*pid);
 	}
+	void SaveTo(std::wstring destination)
+	{
+		if(busy || destination.empty()) return;
+		if(report.process)
+		{
+			std::array<wchar_t, 32> text{}; GetWindowTextW(Control(PID_EDIT), text.data(), static_cast<int>(text.size()));
+			const auto pid = ParsePid(text.data());
+			if(!pid || *pid != report.process->pid || !report.process->creation_time_100ns)
+			{ Message("PID changed or its identity is unavailable. Verify the intended PID again before saving."); return; }
+			Start(*pid, {}, report.process->creation_time_100ns, std::move(destination));
+		}
+		else if(!report.file.path.empty()) Start(0, Wide(report.file.path), {}, std::move(destination));
+	}
 	void Save()
 	{
+		if(busy) return;
 		std::array<wchar_t, 32768> path{};
 		constexpr wchar_t DEFAULT_NAME[] = L"MalinkaHelper-report.json";
 		std::copy(std::begin(DEFAULT_NAME), std::end(DEFAULT_NAME), path.begin());
@@ -175,10 +214,7 @@ struct App
 		dialog.lpstrDefExt = L"json"; dialog.lpstrTitle = L"НОВЫЙ отчёт вне папки клиента (существующие файлы не заменяются)";
 		dialog.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
 		if(!GetSaveFileNameW(&dialog)) return;
-		Sample();
-		std::string error;
-		if(!WriteNewReport(path.data(), report, error)) Message(error);
-		else Message("Diagnostic report saved. Automatic Avoid Freeze remains BLOCKED.");
+		SaveTo(path.data());
 	}
 };
 
@@ -277,7 +313,8 @@ int Cli(int count, wchar_t **args)
 	if((inspect.empty() && !pid) || destination.empty()) return 2;
 	Report report;
 	if(pid) report = InspectProcess(*pid);
-	else { report.measured_at_utc = UtcNow(); report.file = InspectFile(inspect); }
+	else report = InspectFileReport(inspect);
+	report.inspection_trigger = pid ? "cli_pid_inspection" : "cli_file_inspection";
 	std::string error;
 	if(!WriteNewReport(destination, report, error)) return 3;
 	if(!report.file.error.empty() || (report.process && !report.process->error.empty())) return 4;

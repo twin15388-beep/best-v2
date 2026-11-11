@@ -59,6 +59,12 @@ jobs:
           target_compile_definitions(layout-probe PRIVATE CONF_AUTOUPDATE CONF_DISCORD CONF_DISCORD_DYNAMIC _ITERATOR_DEBUG_LEVEL=0 NOMINMAX WIN32_LEAN_AND_MEAN)
           target_compile_options(layout-probe PRIVATE /W3 /utf-8 /d1reportSingleClassLayoutCGameClient)
           target_include_directories(layout-probe PRIVATE "${U}/src" "${U}/src/rust-bridge" "${CMAKE_CURRENT_SOURCE_DIR}" "${U}/ddnet-libs/sdl/include/windows" "${U}/ddnet-libs/curl/include" "${U}/ddnet-libs/sqlite3/include" "${U}/ddnet-libs/zlib/include" "${U}/ddnet-libs/discord/include")
+          add_executable(layout-probe-video probe.cpp)
+          get_target_property(PROBE_DEFINITIONS layout-probe COMPILE_DEFINITIONS)
+          get_target_property(PROBE_INCLUDES layout-probe INCLUDE_DIRECTORIES)
+          target_compile_definitions(layout-probe-video PRIVATE ${PROBE_DEFINITIONS} CONF_VIDEORECORDER)
+          target_compile_options(layout-probe-video PRIVATE /W3 /utf-8 /d1reportSingleClassLayoutCGameClient)
+          target_include_directories(layout-probe-video PRIVATE ${PROBE_INCLUDES})
           '''.replace('@UPSTREAM@',upstream.as_posix())
               (source/'CMakeLists.txt').write_text(cmake,encoding='utf-8')
               logs=[]
@@ -73,10 +79,15 @@ jobs:
                       detail=errors or r.stdout[-3500:]
                       print('::error title=layout-build::'+detail[:3500].replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
                       raise RuntimeError('layout command exit '+str(r.returncode))
-              measured=json.loads(subprocess.check_output(['build-layout/Release/layout-probe.exe'],text=True))
-              metadata={'kind':'compiler-derived-source-layout-NOT-runtime-validated','source_commit':'cf192e3fb8590dbe2e4f66a191aa6616beff6975','defines':['CONF_AUTOUPDATE','CONF_DISCORD','CONF_DISCORD_DYNAMIC','_ITERATOR_DEBUG_LEVEL=0'],'values':measured,'runtime_validated':False,'automatic_avoid_enabled':False}
+              measured={}
+              for name, app in [('without_video','layout-probe.exe'),('with_video','layout-probe-video.exe')]:
+                  measured[name]=json.loads(subprocess.check_output(['build-layout/Release/'+app],text=True))
+              metadata={'kind':'compiler-derived-source-layout-NOT-runtime-validated','source_commit':'cf192e3fb8590dbe2e4f66a191aa6616beff6975','defines':['CONF_AUTOUPDATE','CONF_DISCORD','CONF_DISCORD_DYNAMIC','_ITERATOR_DEBUG_LEVEL=0'],'variants':measured,'exact_release_configuration_confirmed':False,'runtime_validated':False,'automatic_avoid_enabled':False}
               Path('public-candidate-layout.json').write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
               print('::notice title=public-candidate-layout::'+json.dumps(metadata,separators=(',',':')))
+              relevant='\n'.join(line for line in '\n'.join(logs).splitlines() if any(key in line for key in ['m_pClient','m_pConfig','m_Collision','m_Snap','m_aClients','m_GameWorld','m_PredictedWorld','m_aTuningList','m_Controls','m_aLocalIds','m_pMap']))
+              for n in range(0,min(len(relevant),28000),3500):
+                  print('::notice title=candidate-private-layout-'+str(n//3500)+'::'+relevant[n:n+3500].replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
           except BaseException:
               print('::error title=layout-exception::'+traceback.format_exc().replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
               raise

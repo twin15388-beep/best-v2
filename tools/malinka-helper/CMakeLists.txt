@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(MalinkaHelper VERSION 0.1.0 LANGUAGES CXX)
+project(MalinkaHelper VERSION 0.1.1 LANGUAGES CXX)
 
 # Independent build. Do NOT add this as a game-client component or installer.
 set(CMAKE_CXX_STANDARD 20)

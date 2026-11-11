@@ -13,12 +13,14 @@
 
 namespace malinka::helper
 {
-inline constexpr std::string_view VERSION = "0.1.0-diagnostic";
+inline constexpr std::string_view VERSION = "0.1.1-diagnostic";
 inline constexpr std::size_t MAX_IMAGE_BYTES = 128U * 1024U * 1024U;
 inline constexpr std::uint64_t MAX_USER_ADDRESS = 0x00007fffffffffffULL;
 
 bool Contains(std::uint64_t size, std::uint64_t offset, std::uint64_t length);
 bool UserRange(std::uint64_t address, std::uint64_t length);
+// FILETIME is UTC in 100-ns units. Unknown/backwards clocks stay unavailable.
+std::optional<std::uint64_t> ElapsedFileTimeMs(std::uint64_t start_100ns, std::uint64_t end_100ns);
 std::string JsonString(std::string_view value);
 std::string Hex(std::uint64_t value);
 
@@ -130,6 +132,8 @@ struct ScanReport
 {
 	std::string status{"not_run"};
 	std::string reason{"An exact recognized image and matching loaded headers are required"};
+	std::string started_at_utc, finished_at_utc;
+	std::optional<std::uint64_t> duration_ms;
 	std::uint64_t bytes_read{}, bytes_attempted{}, regions_queried{}, failed_reads{};
 	std::vector<std::uint64_t> candidates;
 };
@@ -137,6 +141,8 @@ struct ProcessReport
 {
 	std::uint32_t pid{};
 	std::uint64_t creation_time_100ns{}, module_base{}, module_size{};
+	std::optional<std::uint64_t> expected_creation_time_100ns;
+	std::optional<std::uint64_t> age_ms_at_inspection_start, age_ms_at_scan_start;
 	bool read_only_handle{false}, loaded_headers_match{false}, loaded_vtable_matches{false};
 	std::string error;
 	ScanReport scan;
@@ -147,7 +153,10 @@ struct Report
 	std::optional<ProcessReport> process;
 	Telemetry telemetry;
 	bool mapping_created_by_helper{false};
-	std::string measured_at_utc;
+	// Inspection and save are different events. None is a live physics snapshot.
+	std::string measured_at_utc, inspection_finished_at_utc, saved_at_utc;
+	std::optional<std::uint64_t> inspection_duration_ms;
+	std::string inspection_trigger{"unspecified"};
 };
 std::string MakeReport(const Report &report);
 } // namespace malinka::helper
