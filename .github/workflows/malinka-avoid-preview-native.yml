@@ -19,6 +19,11 @@ jobs:
   native-msvc:
     runs-on: windows-2022
     timeout-minutes: 20
+    env:
+      # Keep the pinned public source byte-identical to Git blobs on Windows.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Check out the exact public prediction source and recursive dependencies
