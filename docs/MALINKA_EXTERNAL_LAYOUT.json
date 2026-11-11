@@ -1,5 +1,5 @@
 {
-  "kind": "compiler-derived-source-layout-NOT-runtime-validated",
+  "kind": "compiler-derived-source-layout-with-partial-runtime-reader-probe",
   "source_commit": "cf192e3fb8590dbe2e4f66a191aa6616beff6975",
   "defines": [
     "CONF_AUTOUPDATE",
@@ -41,11 +41,41 @@
   },
   "exact_release_configuration_confirmed": false,
   "runtime_validated": false,
+  "runtime_validation_scope": "Partial runtime validation of the fields exercised by the native LiveReader only; the complete compiler-derived CGameClient layout and the user's active process are not validated.",
+  "runtime_probe": {
+    "kind": "native-observe-only-live-reader-on-exact-public-release",
+    "workflow_run_id": 43034353037,
+    "job_id": 130569175285,
+    "report_bytes": 1415644,
+    "report_sha256": "266ab4ace655c0fc80c097e24a809a402e6bcad15b5648b719ed5d480de3f321",
+    "reader_candidate": "with_video",
+    "official_exe_sha256": "50430c5f1081863b956fd5f0d8e1c6b88d1aa27f79e199c4053e86a5b632902f",
+    "client_exit": 0,
+    "server_exit": 1,
+    "server_exit_cause_investigated": false,
+    "valid_frames": 250,
+    "transition_matches": 249,
+    "transition_mismatches": 0,
+    "unavailable_samples": 5,
+    "policy_decision_evaluations": 247,
+    "physics_adapter_validated": false,
+    "input_events": 0,
+    "corrections": 0,
+    "owned_keys_held_at_stop": false,
+    "release_failed": false,
+    "process_memory_writes": false,
+    "dll_injections": false,
+    "official_exe_unchanged": true,
+    "atomic_snapshot_guaranteed": false,
+    "user_active_process_tested": false,
+    "gameplay_outcomes_tested": false
+  },
   "automatic_avoid_enabled": false,
   "acquisition_run_id": 43010774923,
   "acquisition_job_id": 130489525339,
   "member_offsets_are_not_RVAs": true,
-  "not_used_by_helper_adapter": true,
+  "not_used_by_helper_adapter": false,
+  "live_reader_uses_variant": "with_video",
   "compiler_class_layout_members": {
     "without_video": {
       "m_SnapTap": 5857016,
@@ -89,5 +119,5 @@
   "generated_header_recipe": "Pinned datasrc compile.py: network_header, content_types_header, client_content_header; -m datasrc.seven.compile: network_header, client_content_header; crosscompile.py: map_header",
   "compiler": "MSVC on windows-2022; C++20, x64, Release, default packing, _ITERATOR_DEBUG_LEVEL=0",
   "pinned_gameclient_header_sha256": "12fffa2eb8b21543938b63364542042a9095316ae641b5abc6b634e631ccc039",
-  "warning": "Compiler measurements are NOT validated process offsets. Never transplant offsets from the modified game-client in this repository. CONF_VIDEORECORDER changes layout; exact release configuration is not inferred from version/folder names."
+  "warning": "Compiler measurements remain candidate member offsets, not RVAs. The native LiveReader probe validated only fields it exercises against the exact public EXE SHA above on a controlled static map; the complete class layout, unexercised members, user-active process and atomicity are not validated. Never transplant offsets from the modified game-client in this repository. CONF_VIDEORECORDER changes layout; exact release configuration is not inferred from version/folder names."
 }
