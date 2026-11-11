@@ -141,6 +141,9 @@ jobs:
               import base64, ctypes, hashlib, io, json, math, os, socket, struct, subprocess, time, urllib.request, zipfile
               from ctypes import wintypes as w
               from pathlib import Path
+              import sys
+              # GitHub's shell:python script lives in RUNNER_TEMP, not GITHUB_WORKSPACE.
+              sys.path.insert(0,str(Path.cwd()))
               from runtime_owned_map import owned_freeze_map
 
               work=Path('build-owned-acquisition').resolve()
