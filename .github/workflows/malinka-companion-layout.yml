@@ -1,0 +1,89 @@
+# Disposable source-layout acquisition. No target client or private code is modified.
+name: Malinka companion pinned source-layout acquisition
+on:
+  push:
+    branches: ["arena/733fc6a9-best-v2"]
+    paths: [".github/workflows/malinka-companion-layout.yml"]
+permissions:
+  contents: read
+jobs:
+  layout:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: BestProjectTeam/BestClient
+          ref: cf192e3fb8590dbe2e4f66a191aa6616beff6975
+          path: upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Generate pinned public headers and compile candidate layout (not runtime validation)
+        shell: python
+        run: |
+          import hashlib, json, re, subprocess, traceback
+          from pathlib import Path
+          try:
+              upstream=Path('upstream').resolve()
+              source=Path('build-layout-source');source.mkdir(exist_ok=False)
+              generated=source/'generated';generated.mkdir()
+              for script, argument, output in [
+                  (['datasrc/compile.py'],'network_header','protocol.h'),
+                  (['datasrc/compile.py'],'content_types_header','data_types.h'),
+                  (['datasrc/compile.py'],'client_content_header','client_data.h'),
+                  (['-m','datasrc.seven.compile'],'network_header','protocol7.h'),
+                  (['-m','datasrc.seven.compile'],'client_content_header','client_data7.h'),
+                  (['datasrc/crosscompile.py'],'map_header','protocolglue.h')]:
+                  data=subprocess.check_output(['python',*script,argument],cwd=upstream)
+                  (generated/output).write_bytes(data)
+              probe=r'''
+          #include <cstddef>
+          #include <cstdio>
+          #include <game/client/gameclient.h>
+          #include <game/client/prediction/entities/character.h>
+          int main() {
+              std::printf("{\"gameclient_size\":%zu,\"client_data_size\":%zu,\"core_size\":%zu,\"collision_size\":%zu,\"gameworld_size\":%zu,\"character_size\":%zu,\"gameclient_snap\":%zu,\"snap_local_id\":%zu,\"gameclient_clients\":%zu,\"client_predicted\":%zu,\"client_render_pos\":%zu,\"core_pos\":%zu,\"core_vel\":%zu}\n",
+                  sizeof(CGameClient),sizeof(CGameClient::CClientData),sizeof(CCharacterCore),sizeof(CCollision),sizeof(CGameWorld),sizeof(CCharacter),
+                  offsetof(CGameClient,m_Snap),offsetof(CGameClient::CSnapState,m_LocalClientId),offsetof(CGameClient,m_aClients),
+                  offsetof(CGameClient::CClientData,m_Predicted),offsetof(CGameClient::CClientData,m_RenderPos),offsetof(CCharacterCore,m_Pos),offsetof(CCharacterCore,m_Vel));
+          }
+          '''
+              (source/'probe.cpp').write_text(probe,encoding='utf-8')
+              cmake=r'''
+          cmake_minimum_required(VERSION 3.24)
+          project(PublicCandidateLayout LANGUAGES CXX)
+          set(CMAKE_CXX_STANDARD 20)
+          set(CMAKE_CXX_STANDARD_REQUIRED ON)
+          file(TO_CMAKE_PATH "@UPSTREAM@" U)
+          add_executable(layout-probe probe.cpp)
+          target_compile_definitions(layout-probe PRIVATE CONF_AUTOUPDATE CONF_DISCORD CONF_DISCORD_DYNAMIC _ITERATOR_DEBUG_LEVEL=0 NOMINMAX WIN32_LEAN_AND_MEAN)
+          target_compile_options(layout-probe PRIVATE /W3 /utf-8 /d1reportSingleClassLayoutCGameClient)
+          target_include_directories(layout-probe PRIVATE "${U}/src" "${U}/src/rust-bridge" "${CMAKE_CURRENT_SOURCE_DIR}" "${U}/ddnet-libs/sdl/include" "${U}/ddnet-libs/curl/include" "${U}/ddnet-libs/sqlite3/include" "${U}/ddnet-libs/zlib/include" "${U}/ddnet-libs/discord/include")
+          '''.replace('@UPSTREAM@',upstream.as_posix())
+              (source/'CMakeLists.txt').write_text(cmake,encoding='utf-8')
+              logs=[]
+              for args in [
+                  ['cmake','-S',str(source),'-B','build-layout','-A','x64'],
+                  ['cmake','--build','build-layout','--config','Release','--parallel','2']]:
+                  r=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,errors='replace',timeout=300)
+                  logs.append(r.stdout)
+                  Path('layout-build.log').write_text('\n'.join(logs),encoding='utf-8')
+                  if r.returncode:
+                      print('::error title=layout-build::'+r.stdout[-45000:].replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+                      raise RuntimeError('layout command exit '+str(r.returncode))
+              measured=json.loads(subprocess.check_output(['build-layout/Release/layout-probe.exe'],text=True))
+              metadata={'kind':'compiler-derived-source-layout-NOT-runtime-validated','source_commit':'cf192e3fb8590dbe2e4f66a191aa6616beff6975','defines':['CONF_AUTOUPDATE','CONF_DISCORD','CONF_DISCORD_DYNAMIC','_ITERATOR_DEBUG_LEVEL=0'],'values':measured,'runtime_validated':False,'automatic_avoid_enabled':False}
+              Path('public-candidate-layout.json').write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
+              print('::notice title=public-candidate-layout::'+json.dumps(metadata,separators=(',',':')))
+          except BaseException:
+              print('::error title=layout-exception::'+traceback.format_exc().replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+              raise
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: public-candidate-layout-not-runtime-validated
+          path: |
+            public-candidate-layout.json
+            layout-build.log
+          retention-days: 7
+          if-no-files-found: warn
