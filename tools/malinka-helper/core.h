@@ -16,6 +16,9 @@ namespace malinka::helper
 inline constexpr std::string_view VERSION = "0.1.1-diagnostic";
 inline constexpr std::size_t MAX_IMAGE_BYTES = 128U * 1024U * 1024U;
 inline constexpr std::uint64_t MAX_USER_ADDRESS = 0x00007fffffffffffULL;
+// Pinned cf192e3 src/engine/shared/protocol.h:89, MAX_CLIENTS=128.
+// Do not substitute LEGACY_MAX_CLIENTS=64 for the Mumble writer's local ID.
+inline constexpr int MAX_TELEMETRY_CLIENTS = 128;
 
 bool Contains(std::uint64_t size, std::uint64_t offset, std::uint64_t length);
 bool UserRange(std::uint64_t address, std::uint64_t length);

@@ -204,12 +204,11 @@ Telemetry TelemetryTracker::Observe(const MumbleWindows &v, std::uint64_t now)
 	if(!name || *name != "DDNet" || !id || v.context_length >= sizeof(v.context))
 		return Unavailable("invalid", "Unexpected name, unterminated identity or invalid context length");
 	if(v.context_length == 0 || id->empty()) return Unavailable("offline", "The writer has no online player identity/context");
-	if(id->size() > 2 || !std::all_of(id->begin(), id->end(), [](char c) { return c >= '0' && c <= '9'; }))
+	if(id->size() > 3 || !std::all_of(id->begin(), id->end(), [](char c) { return c >= '0' && c <= '9'; }))
 		return Unavailable("invalid", "Player identity is not an ASCII client ID");
 	int client_id = 0;
 	for(char c : *id) client_id = client_id * 10 + c - '0';
-	// MAX_CLIENTS=64 in the pinned upstream engine/shared/protocol.h.
-	if(client_id >= 64 || (id->size() > 1 && id->front() == '0')) return Unavailable("invalid", "Client ID is outside the documented range/encoding");
+	if(client_id >= MAX_TELEMETRY_CLIENTS || (id->size() > 1 && id->front() == '0')) return Unavailable("invalid", "Client ID is outside the documented range/encoding");
 	if(v.context[v.context_length] != 0) return Unavailable("invalid", "Context is not terminated at its declared length");
 	std::string context;
 	for(std::uint32_t n = 0; n < v.context_length; ++n)
