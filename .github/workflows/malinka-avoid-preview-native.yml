@@ -76,3 +76,33 @@ jobs:
           & "build/avoid-preview/Release/MalinkaAvoidPreview.exe" --self-test-abi
           if ($LASTEXITCODE -ne 0) { throw "native ABI self-check exited $LASTEXITCODE" }
           Get-FileHash "build/avoid-preview/Release/MalinkaAvoidPreview.exe" -Algorithm SHA256
+      - name: Prepare the observe-only-first experimental Windows bundle
+        shell: pwsh
+        run: |
+          $exe = "build/avoid-preview/Release/MalinkaAvoidPreview.exe"
+          $bundle = "build/avoid-preview/package"
+          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
+          Copy-Item -LiteralPath $exe -Destination $bundle
+          Copy-Item -LiteralPath "tools/malinka-helper/avoid/OBSERVE-ONLY.cmd" -Destination $bundle
+          Copy-Item -LiteralPath "tools/malinka-helper/avoid/TEST-READ-ME.txt" -Destination (Join-Path $bundle "READ-ME-FIRST.txt")
+          Copy-Item -LiteralPath "LICENSE" -Destination $bundle
+          Copy-Item -LiteralPath "license.txt" -Destination $bundle
+          $sha = (Get-FileHash -LiteralPath (Join-Path $bundle "MalinkaAvoidPreview.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  MalinkaAvoidPreview.exe" | Set-Content -LiteralPath (Join-Path $bundle "SHA256SUMS.txt") -Encoding ascii
+          @"
+          repository_commit=$env:GITHUB_SHA
+          pinned_public_source=cf192e3fb8590dbe2e4f66a191aa6616beff6975
+          pinned_ddnet_libs=c0e6703fbcdbe03df2f26875427ec3951ce4ec21
+          build=MSVC x64 Release
+          self_test=native-abi-self-test-passed
+          input_default=disabled
+          package=experimental-not-a-release
+          "@ | Set-Content -LiteralPath (Join-Path $bundle "BUILD-INFO.txt") -Encoding ascii
+          Get-ChildItem -LiteralPath $bundle | Select-Object Name,Length
+      - name: Upload time-limited experimental test bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: MalinkaAvoidPreview-experimental-win64
+          path: build/avoid-preview/package/
+          retention-days: 30
+          if-no-files-found: error
