@@ -39,13 +39,32 @@ jobs:
           Write-Host "pinned-source=$source ddnet-libs=$libs"
       - name: Configure isolated x64 preview target with MSVC
         shell: pwsh
-        run: >-
-          cmake -S tools/malinka-helper -B build/avoid-preview -A x64
-          -DMALINKA_BUILD_AVOID_PREVIEW=ON
-          -DMALINKA_PINNED_SOURCE="$env:GITHUB_WORKSPACE/upstream"
+        run: |
+          $log = "avoid-preview-configure.log"
+          & cmake -S tools/malinka-helper -B build/avoid-preview -A x64 `
+            -DMALINKA_BUILD_AVOID_PREVIEW=ON `
+            "-DMALINKA_PINNED_SOURCE=$env:GITHUB_WORKSPACE/upstream" *> $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $tail = (Get-Content $log -Tail 35) -join "`n"
+            $tail = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A').Replace('::', ':')
+            Write-Output ("::error title=CMake configure details::$tail")
+            exit $code
+          }
+          Get-Content $log
       - name: Build the independent preview executable (compile verification only)
         shell: pwsh
-        run: cmake --build build/avoid-preview --config Release --target MalinkaAvoidPreview --parallel 2
+        run: |
+          $log = "avoid-preview-build.log"
+          & cmake --build build/avoid-preview --config Release --target MalinkaAvoidPreview --parallel 2 *> $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $tail = (Get-Content $log -Tail 35) -join "`n"
+            $tail = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A').Replace('::', ':')
+            Write-Output ("::error title=MSVC build details::$tail")
+            exit $code
+          }
+          Get-Content $log
       - name: Run native MSVC candidate-layout self-check without opening a process or sending input
         shell: pwsh
         run: |

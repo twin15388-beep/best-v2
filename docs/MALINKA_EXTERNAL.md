@@ -69,7 +69,7 @@ cmake --build build/avoid-preview --config Release --target MalinkaAvoidPreview
 
 Последний Linux ASan/UBSan/leak-detection fixture run: **12,797 checks, 361 runtime-trace transition pairs, 0 mismatches**, synthetic safe direction `-1`, baseline danger tick `36`, `no_game_input=true`. Logs: `.artifacts/external-helper/avoid-fixture-build-6.log` и `avoid-fixture-run-6.log`. Это только policy/importer fixture на сохранённой runtime-3 trace; он не компилирует Windows reader/preview, не проверяет `SendInput` или настоящий Avoid.
 
-Добавлен отдельный Windows/MSVC workflow, который собирает optional target и запускает `--self-test-abi` без открытия process или ввода. Он проверяет только pinned compiler-layout candidate, не layout официального EXE. **Native Windows/MSVC target пока не собирался; in-game Avoid и badge — not verified.** Локальные Zig Windows-GNU object checks с test-only thread shim и без MSVC ABI `static_assert` были только syntax checks, не Windows build.
+Добавлен отдельный Windows/MSVC workflow для optional target и безопасного `--self-test-abi` (без открытия process/ввода). Первый run **43032029783** успешно checkout-нул pinned source/submodule и подтвердил commit hashes, но упал на CMake configure до компиляции; `--self-test-abi` не запускался. В workflow добавлен вывод хвоста configure/build errors в GitHub check annotations для повторной диагностики. Пока нет успешного native build или candidate self-check; in-game Avoid и badge не проверены. Zig Windows-GNU checks были только syntax checks.
 
 ## Исторический Native Windows build 0.1.0 и isolated checks
 
