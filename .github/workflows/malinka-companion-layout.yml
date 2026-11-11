@@ -58,7 +58,7 @@ jobs:
           add_executable(layout-probe probe.cpp)
           target_compile_definitions(layout-probe PRIVATE CONF_AUTOUPDATE CONF_DISCORD CONF_DISCORD_DYNAMIC _ITERATOR_DEBUG_LEVEL=0 NOMINMAX WIN32_LEAN_AND_MEAN)
           target_compile_options(layout-probe PRIVATE /W3 /utf-8 /d1reportSingleClassLayoutCGameClient)
-          target_include_directories(layout-probe PRIVATE "${U}/src" "${U}/src/rust-bridge" "${CMAKE_CURRENT_SOURCE_DIR}" "${U}/ddnet-libs/sdl/include" "${U}/ddnet-libs/curl/include" "${U}/ddnet-libs/sqlite3/include" "${U}/ddnet-libs/zlib/include" "${U}/ddnet-libs/discord/include")
+          target_include_directories(layout-probe PRIVATE "${U}/src" "${U}/src/rust-bridge" "${CMAKE_CURRENT_SOURCE_DIR}" "${U}/ddnet-libs/sdl/include/windows" "${U}/ddnet-libs/curl/include" "${U}/ddnet-libs/sqlite3/include" "${U}/ddnet-libs/zlib/include" "${U}/ddnet-libs/discord/include")
           '''.replace('@UPSTREAM@',upstream.as_posix())
               (source/'CMakeLists.txt').write_text(cmake,encoding='utf-8')
               logs=[]
