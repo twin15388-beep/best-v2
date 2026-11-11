@@ -40,13 +40,17 @@ jobs:
                       msg=r.stdout[-45000:].replace('%','%25').replace('\r','%0D').replace('\n','%0A')
                       print('::error title='+name+'::'+msg)
                       raise RuntimeError(name+' exit '+str(r.returncode))
+                  match=re.search(r'checks=(\d+) failures=0',r.stdout)
+                  if match:print('::notice title='+name+'-passed::exit0; '+match.group(0))
                   return r.stdout
 
+              command(['cmake','-S','tools/malinka-helper','-B','build-helper-release','-A','x64'],'standalone-configure')
+              command(['cmake','--build','build-helper-release','--config','Release','--parallel','2'],'standalone-build',300)
               command(['cmake','-S','build-helper-check-source','-B','build-helper-native','-A','x64'],'configure')
               command(['cmake','--build','build-helper-native','--config','Release','--parallel','2'],'build',300)
               core_log=command(['build-helper-native/Release/helper-core-check.exe'],'core-check')
               win_log=command(['build-helper-native/Release/helper-platform-check.exe',Path(os.environ['RUNNER_TEMP'])/('malinka-helper-check-'+os.environ['GITHUB_RUN_ID'])],'win32-check')
-              app=Path('build-helper-native/helper/Release/MalinkaHelper.exe').resolve()
+              app=Path('build-helper-release/Release/MalinkaHelper.exe').resolve()
               exe=app.read_bytes()
               assert 0<len(exe)<8*1024*1024
 
@@ -140,8 +144,13 @@ jobs:
                       return True
                   u.EnumWindows(callback,0)
                   return next((w for w in found if u.GetDlgItem(w,106)),None)
+              u.SendMessageTimeoutW.argtypes=[wintypes.HWND,wintypes.UINT,wintypes.WPARAM,wintypes.LPARAM,wintypes.UINT,wintypes.UINT,ctypes.POINTER(ctypes.c_size_t)]
+              u.SendMessageTimeoutW.restype=ctypes.c_ssize_t
               def text(hwnd):
-                  b=ctypes.create_unicode_buffer(32768);u.GetWindowTextW(hwnd,b,len(b));return b.value
+                  b=ctypes.create_unicode_buffer(32768);result=ctypes.c_size_t()
+                  # GetWindowTextW cannot read another process's EDIT control; WM_GETTEXT can.
+                  assert u.SendMessageTimeoutW(hwnd,0x000D,len(b),ctypes.addressof(b),2,2000,ctypes.byref(result))
+                  return b.value
               proc=subprocess.Popen([str(app)])
               try:
                   end=time.monotonic()+12;hwnd=None
