@@ -1,0 +1,93 @@
+{
+  "kind": "compiler-derived-source-layout-NOT-runtime-validated",
+  "source_commit": "cf192e3fb8590dbe2e4f66a191aa6616beff6975",
+  "defines": [
+    "CONF_AUTOUPDATE",
+    "CONF_DISCORD",
+    "CONF_DISCORD_DYNAMIC",
+    "_ITERATOR_DEBUG_LEVEL=0"
+  ],
+  "variants": {
+    "without_video": {
+      "gameclient_size": 11047360,
+      "client_data_size": 14784,
+      "core_size": 576,
+      "collision_size": 160,
+      "gameworld_size": 3168,
+      "character_size": 1512,
+      "gameclient_snap": 9013520,
+      "snap_local_id": 22736,
+      "gameclient_clients": 9067616,
+      "client_predicted": 120,
+      "client_render_pos": 11936,
+      "core_pos": 16,
+      "core_vel": 24
+    },
+    "with_video": {
+      "gameclient_size": 11064576,
+      "client_data_size": 14784,
+      "core_size": 576,
+      "collision_size": 160,
+      "gameworld_size": 3168,
+      "character_size": 1512,
+      "gameclient_snap": 9030736,
+      "snap_local_id": 22736,
+      "gameclient_clients": 9084832,
+      "client_predicted": 120,
+      "client_render_pos": 11936,
+      "core_pos": 16,
+      "core_vel": 24
+    }
+  },
+  "exact_release_configuration_confirmed": false,
+  "runtime_validated": false,
+  "automatic_avoid_enabled": false,
+  "acquisition_run_id": 43010774923,
+  "acquisition_job_id": 130489525339,
+  "member_offsets_are_not_RVAs": true,
+  "not_used_by_helper_adapter": true,
+  "compiler_class_layout_members": {
+    "without_video": {
+      "m_SnapTap": 5857016,
+      "m_Controls": 8508664,
+      "m_pClient": 9009608,
+      "m_pConfigManager": 9009624,
+      "m_pConfig": 9009632,
+      "m_Collision": 9009808,
+      "m_Snap": 9013520,
+      "m_aClients": 9067616,
+      "m_aLocalIds": 10971292,
+      "m_GameWorld": 10972040,
+      "m_PredictedWorld": 10975208,
+      "m_pMap": 10995656,
+      "m_aTuningList": 10996296
+    },
+    "with_video": {
+      "m_SnapTap": 5857848,
+      "m_Controls": 8525880,
+      "m_pClient": 9026824,
+      "m_pConfigManager": 9026840,
+      "m_pConfig": 9026848,
+      "m_Collision": 9027024,
+      "m_Snap": 9030736,
+      "m_aClients": 9084832,
+      "m_aLocalIds": 10988508,
+      "m_GameWorld": 10989256,
+      "m_PredictedWorld": 10992424,
+      "m_pMap": 11012872,
+      "m_aTuningList": 11013512
+    }
+  },
+  "acquisition_workflow_commit": "b8a4be09b943510b844705ebe4bacaef5474d735",
+  "acquisition_workflow_path": ".github/workflows/malinka-companion-layout.yml",
+  "exact_commands": [
+    "cmake -S build-layout-source -B build-layout -A x64",
+    "cmake --build build-layout --config Release --parallel 2",
+    "build-layout/Release/layout-probe.exe",
+    "build-layout/Release/layout-probe-video.exe"
+  ],
+  "generated_header_recipe": "Pinned datasrc compile.py: network_header, content_types_header, client_content_header; -m datasrc.seven.compile: network_header, client_content_header; crosscompile.py: map_header",
+  "compiler": "MSVC on windows-2022; C++20, x64, Release, default packing, _ITERATOR_DEBUG_LEVEL=0",
+  "pinned_gameclient_header_sha256": "12fffa2eb8b21543938b63364542042a9095316ae641b5abc6b634e631ccc039",
+  "warning": "Compiler measurements are NOT validated process offsets. Never transplant offsets from the modified game-client in this repository. CONF_VIDEORECORDER changes layout; exact release configuration is not inferred from version/folder names."
+}

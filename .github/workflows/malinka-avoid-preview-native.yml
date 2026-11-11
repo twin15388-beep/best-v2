@@ -1,0 +1,54 @@
+name: Malinka external Avoid preview native MSVC check
+on:
+  push:
+    branches: [main, "arena/**"]
+    paths:
+      - "tools/malinka-helper/**"
+      - ".github/workflows/malinka-avoid-preview-native.yml"
+  pull_request:
+    paths:
+      - "tools/malinka-helper/**"
+      - ".github/workflows/malinka-avoid-preview-native.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: malinka-avoid-preview-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-msvc:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check out the exact public prediction source and recursive dependencies
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: BestProjectTeam/BestClient
+          ref: cf192e3fb8590dbe2e4f66a191aa6616beff6975
+          path: upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Verify pinned public source and ddnet-libs identity
+        shell: pwsh
+        run: |
+          $source = (git -C upstream rev-parse HEAD).Trim()
+          $libs = (git -C upstream/ddnet-libs rev-parse HEAD).Trim()
+          if ($source -ne 'cf192e3fb8590dbe2e4f66a191aa6616beff6975') { throw "unexpected upstream commit: $source" }
+          if ($libs -ne 'c0e6703fbcdbe03df2f26875427ec3951ce4ec21') { throw "unexpected ddnet-libs commit: $libs" }
+          Write-Host "pinned-source=$source ddnet-libs=$libs"
+      - name: Configure isolated x64 preview target with MSVC
+        shell: pwsh
+        run: >-
+          cmake -S tools/malinka-helper -B build/avoid-preview -A x64
+          -DMALINKA_BUILD_AVOID_PREVIEW=ON
+          -DMALINKA_PINNED_SOURCE="$env:GITHUB_WORKSPACE/upstream"
+      - name: Build the independent preview executable (compile verification only)
+        shell: pwsh
+        run: cmake --build build/avoid-preview --config Release --target MalinkaAvoidPreview --parallel 2
+      - name: Run native MSVC candidate-layout self-check without opening a process or sending input
+        shell: pwsh
+        run: |
+          & "build/avoid-preview/Release/MalinkaAvoidPreview.exe" --self-test-abi
+          if ($LASTEXITCODE -ne 0) { throw "native ABI self-check exited $LASTEXITCODE" }
+          Get-FileHash "build/avoid-preview/Release/MalinkaAvoidPreview.exe" -Algorithm SHA256
