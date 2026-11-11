@@ -24,11 +24,13 @@ Public official Best v3.1.1 tag→**cf192e3fb8590dbe2e4f66a191aa6616beff6975**. 
 
 Pinned helper source **e8e1547f104c662e2b350a47f852609d3eaf1f61**. **CI43005315923/job130471217878 SUCCESS1m0s /watch exit0**, Windows2022/MSVC19.44.35229.0/SDK10.0.26100.0. Standalone `cmake -S tools/malinka-helper -B build-helper-release -A x64` и `cmake --build build-helper-release --config Release --parallel 2`: **exit0 оба**. Actual core+Win32 isolated fixture **compile0/run0**, **1080071 core checks/0failures**, **43 Win32 checks/0failures**. Дополнительно exact delivered standalone EXE: CLI/selfprocess/unknown-build/report-no-replace, real public official EXE **только как файл**/RTTI, no forbidden imports, GUI create/resize/self-PID inspect/topmost/close. Это synthetic messages, не physical keys; official game не запускался.
 
+После удаления временных workflows новый постоянный **build-only CI43006689170/f3231c0b964e044e73aaeec67162f15f335b95cd SUCCESS**. Он проверил обычный standalone build/package без fixtures. Его helper EXE355840bytes/SHA256**2419916a134f4c00e1f4936d1f4d4914a23bc902a01cb382c044dc8bc3ac3ca7** НЕ заменял доставленный и runtime-checked e8e1547 ZIP/EXE. Source helper diff e8e1547→f3231c0 пустой, binary reproducibility не заявляется. Metadata `.artifacts/external-helper/permanent-build-{result,annotations}.json`.
+
 Linux g++12.2/CMake3.31.6/Ninja1.11.1.3 portable core configure/build **0**; ASan/UBSan/LSan core **compile0/run0/1080071/0**. Logs `.artifacts/external-helper/core-{configure-2,build-3,check-compile-3,check-run-3}.{log,exit}`; exact commands EXTERNAL. Первое configure1 из-за Ninja вне PATH исправлено. Native attempts43004322507 (fixture CMake backslash),43004678906 (GetWindowTextW не читает чужой EDIT),43004999743 (all runtime passed, strict source CRLF assertion) исправлены: normalized paths, WM_GETTEXT+timeout, helper-local `.gitattributes eol=lf`. Последний успех выше; не повторять старые ошибки/пакеты. Полные fixture sources/recipe: `git show e8e1547:.github/workflows/malinka-companion-check.yml`.
 
 **Получен оригинальный diagnostic ZIP**, не relabeled game EXE: `build/delivery/malinka-helper-e8e1547/MalinkaHelper-0.1.0-diagnostic-windows-x64.zip`, **204963bytes**, SHA256**66c9685adf3a81a311c1fd6b984be62ef18376dd23c07eeb2e8cf547bd63c16d**. Внутри `MalinkaHelper.exe` **355840bytes**, SHA256**b0c0ad64259778b57e9b337e42a8de21169f7b4962f82a8c7359554cc5cd70a3**, AMD64/PE32+/GUI; все **11 source/build/provenance files byte-identical Git**, README/LICENSE/CHECKS/source SHA list. ZIP CRC/blob/whole/PE/source verified locally exit0, `.artifacts/external-helper/verified-delivery.json`. Archive unchanged после CI. Unreferenced bounded blob32b23ee1d12f1f3162756dcbd345c4b86d0e14ba — transport only, без binary commit/ref/release.
 
-Dropbox **`/MalinkaHelper-diagnostic-e8e1547`**, folderid`id:dED5V7bj3cAAAAAAAAAAEw`, uploaded ZIP(`id:dED5V7bj3cAAAAAAAAAAFQ`,rev65ffddb3f65674b309220), README(`id:dED5V7bj3cAAAAAAAAAAFg`,9707bytes), SHA256SUMS(`id:dED5V7bj3cAAAAAAAAAAFA`,113bytes). Add/strict-conflict, readback list matched3 files; public viewer/download ZIP link создан (access params в Git не копировать). ZIP contenthash955def309e249cf9f4393125fbc9e0b080947fc18a206ebf07209215b3193008. Историческая 0.1.1 папка НЕ заменялась.
+Dropbox **`/MalinkaHelper-diagnostic-e8e1547`**, folderid`id:dED5V7bj3cAAAAAAAAAAEw`, uploaded ZIP(`id:dED5V7bj3cAAAAAAAAAAFQ`,rev65ffddb3f65674b309220), README(`id:dED5V7bj3cAAAAAAAAAAFg`,9707bytes), SHA256SUMS(`id:dED5V7bj3cAAAAAAAAAAFA`,113bytes). Add/strict-conflict; все3sizes и независимо рассчитанные4MiB-block content hashes совпали с readback, `.artifacts/external-helper/dropbox-delivery.json`. Public viewer/download ZIP link создан (access params в Git не копировать). ZIP contenthash955def309e249cf9f4393125fbc9e0b080947fc18a206ebf07209215b3193008. Историческая 0.1.1 папка НЕ заменялась.
 
 ### Ближайший шаг / недостающие входные данные
 
@@ -47,7 +49,7 @@ Dropbox **`/MalinkaHelper-diagnostic-e8e1547`**, folderid`id:dED5V7bj3cAAAAAAAAA
 - Не просить исходники повторно. Самостоятельная адаптация — **не original/official/full KRX 1.32**. 60 remaining gated controls не являются согласованным сокращением запроса.
 - Точный полный запрос, standing instructions и исторические данные сохранены ниже и в docs. Ответы: первая строка `[Aero]`, обращаться **бро**, русский.
 
-## Измеренные результаты текущей 0.1.1
+## Измеренные результаты исторической доставленной 0.1.1
 
 ### 1. Полная native сборка
 

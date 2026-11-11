@@ -43,6 +43,8 @@ build-helper-native/Release/helper-platform-check.exe <fresh-owned-temp-root>
 
 Финальная recipe с полными одноразовыми fixtures: `git show e8e1547f104c662e2b350a47f852609d3eaf1f61:.github/workflows/malinka-companion-check.yml`. Постоянный новый test suite не добавлен. Scratch `.artifacts/external-helper`, binaries `build/` ignored. До успеха устранены fixture-only CMake Windows path escaping и GetWindowTextW interprocess EDIT limitation; strict packaging обнаружил Windows CRLF, затем helper-local `.gitattributes` зафиксировал LF. Финальные 11 source files — **byte-identical Git blobs**, без EOL исключений.
 
+Постоянный отдельный build-only workflow `malinka-companion-build.yml` после cleanup также исполнен: **CI43006689170/source f3231c0b964e044e73aaeec67162f15f335b95cd SUCCESS**. Обычный standalone build/package, без runtime fixtures. Его другой helper EXE SHA256 `2419916a134f4c00e1f4936d1f4d4914a23bc902a01cb382c044dc8bc3ac3ca7` не заменял доставленный и отдельно runtime-checked e8e1547 архив ниже. Helper source diff пустой; binary reproducibility не заявляется.
+
 Linux/g++12.2, CMake3.31.6/Ninja1.11.1.3: configure/build portable core exit0. ASan/UBSan/LSan actual core compile0/run0/**1080071 checks/0 failures**:
 
 ```sh
