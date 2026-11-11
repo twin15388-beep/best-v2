@@ -90,7 +90,7 @@ struct App
 		if(report.process)
 		{
 			const auto &p = *report.process;
-			text += L"\r\nPID: " + std::to_wstring(p.pid) + L"; main module: " + Wide(Hex(p.module_base)) + L"\r\n";
+			text += L"\r\nPID: " + std::to_wstring(p.pid) + L"; main module: " + (UserRange(p.module_base, p.module_size) ? Wide(Hex(p.module_base)) : L"unavailable") + L"\r\n";
 			text += L"Проверка заголовков загруженного образа: " + std::wstring(p.loaded_headers_match ? L"совпали" : L"не подтверждены") + L"\r\n";
 			text += L"Поиск CGameClient: " + Wide(p.scan.status) + L"; кандидатов: " + std::to_wstring(p.scan.candidates.size()) + L"\r\n";
 			text += Wide(p.scan.reason) + L"\r\n";

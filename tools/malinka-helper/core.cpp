@@ -73,7 +73,7 @@ std::optional<std::string> Ascii16(std::span<const char16_t> text)
 template<typename T>
 void Optional(std::ostream &out, const std::optional<T> &v)
 {
-	if(v) out << *v; else out << "null";
+	if(v && std::isfinite(static_cast<double>(*v))) out << *v; else out << "null";
 }
 } // namespace
 
@@ -264,8 +264,8 @@ std::string MakeReport(const Report &r)
 	else
 	{
 		const auto &p = *r.process;
-		o << "{\"pid\": " << p.pid << ", \"measurement_only_not_a_live_snapshot\": true, \"creation_time_100ns\": " << p.creation_time_100ns
-		  << ", \"module_base_runtime_va\": " << JsonString(Hex(p.module_base)) << ", \"module_size\": " << p.module_size
+		o << "{\"pid\": " << p.pid << ", \"measurement_only_not_a_live_snapshot\": true, \"creation_time_100ns\": " << (p.creation_time_100ns ? std::to_string(p.creation_time_100ns) : "null")
+		  << ", \"module_base_runtime_va\": " << (UserRange(p.module_base, p.module_size) ? JsonString(Hex(p.module_base)) : "null") << ", \"module_size\": " << (p.module_size ? std::to_string(p.module_size) : "null")
 		  << ", \"handle_read_only\": " << (p.read_only_handle ? "true" : "false")
 		  << ", \"loaded_headers_match\": " << (p.loaded_headers_match ? "true" : "false")
 		  << ", \"loaded_vtable_matches\": " << (p.loaded_vtable_matches ? "true" : "false") << ", \"error\": " << JsonString(p.error)
