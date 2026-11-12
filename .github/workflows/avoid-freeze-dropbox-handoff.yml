@@ -1,0 +1,44 @@
+name: Temporary Dropbox artifact handoff
+on:
+  push:
+    branches:
+      - arena/52ad073e-best-v2
+    paths:
+      - .github/workflows/avoid-freeze-dropbox-handoff.yml
+permissions:
+  actions: read
+  contents: write
+jobs:
+  stage-for-download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the current branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Download the successful native build artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: AvoidFreeze-experimental-observe-only-win64
+          path: .transfer/download
+          repository: ${{ github.repository }}
+          run-id: 43295350840
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Stage the packaged ZIP for one-time Dropbox transfer
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_zip="$(find .transfer/download -type f -name 'AvoidFreeze-experimental-win64.zip' -print -quit)"
+          if [[ -z "$source_zip" ]]; then
+            echo 'Expected packaged ZIP was not present in the downloaded artifact.' >&2
+            find .transfer/download -maxdepth 4 -type f -print >&2
+            exit 1
+          fi
+          dest='.transfer/share/AvoidFreeze-experimental-win64-retry.zip'
+          mkdir -p "$(dirname "$dest")"
+          cp -- "$source_zip" "$dest"
+          sha256sum "$dest"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$dest"
+          git commit -m 'Temporary Dropbox artifact bridge for page-retry build'
+          git push origin HEAD:refs/heads/arena/52ad073e-best-v2
