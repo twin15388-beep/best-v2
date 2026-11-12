@@ -9,6 +9,7 @@
 #include <game/collision.h>
 #include <game/gamecore.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
@@ -34,6 +35,10 @@ struct PrivateMember
     template struct PrivateMember<TagName, &Owner::Member>
 
 using LocalIdsArray = int[NUM_DUMMIES];
+using PredictedTicksArray = int[NUM_DUMMIES];
+using WorldConfig = decltype(CGameWorld::m_WorldConfig);
+AF_EXPOSE(ClientState, IClient, m_State, IClient::EClientState);
+AF_EXPOSE(ClientPredictedTicks, IClient, m_aPredTick, PredictedTicksArray);
 AF_EXPOSE(GameClientClient, CGameClient, m_pClient, IClient *);
 AF_EXPOSE(GameClientConfig, CGameClient, m_pConfig, CConfig *);
 AF_EXPOSE(GameClientCollision, CGameClient, m_Collision, CCollision);
@@ -50,7 +55,7 @@ AF_EXPOSE(GameClientTuningList, CGameClient, m_aTuningList, TuningArray);
 AF_EXPOSE(ClientDataPredictedCore, CGameClient::CClientData, m_Predicted, CCharacterCore);
 
 AF_EXPOSE(GameWorldTick, CGameWorld, m_GameTick, int);
-AF_EXPOSE(GameWorldFlags, CGameWorld, m_WorldConfig, decltype(CGameWorld::m_WorldConfig));
+AF_EXPOSE(GameWorldFlags, CGameWorld, m_WorldConfig, WorldConfig);
 AF_EXPOSE(GameWorldLocalId, CGameWorld, m_LocalClientId, int);
 AF_EXPOSE(GameWorldEgoTiles, CGameWorld, m_pEgoTilesPrediction, CEgoTilesPrediction *);
 AF_EXPOSE(GameWorldEntityLists, CGameWorld, m_apFirstEntityTypes, EntityListArray);
@@ -76,6 +81,8 @@ AF_EXPOSE(CollisionTune, CCollision, m_pTune, CTuneTile *);
 AF_EXPOSE(CollisionDoor, CCollision, m_pDoor, CDoorTile *);
 AF_EXPOSE(CollisionExtraDoor, CCollision, m_pExtraDoorTiles, const CDoorTile *);
 
+AF_EXPOSE(CoreWorld, CCharacterCore, m_pWorld, CWorldCore *);
+AF_EXPOSE(CoreCollision, CCharacterCore, m_pCollision, CCollision *);
 AF_EXPOSE(CorePosition, CCharacterCore, m_Pos, vec2);
 AF_EXPOSE(CoreVelocity, CCharacterCore, m_Vel, vec2);
 AF_EXPOSE(CoreHookPosition, CCharacterCore, m_HookPos, vec2);
@@ -83,8 +90,41 @@ AF_EXPOSE(CoreHookDirection, CCharacterCore, m_HookDir, vec2);
 AF_EXPOSE(CoreHookTeleBase, CCharacterCore, m_HookTeleBase, vec2);
 AF_EXPOSE(CoreHookTick, CCharacterCore, m_HookTick, int);
 AF_EXPOSE(CoreHookState, CCharacterCore, m_HookState, int);
+AF_EXPOSE(CoreActiveWeapon, CCharacterCore, m_ActiveWeapon, int);
+AF_EXPOSE(CoreNewHook, CCharacterCore, m_NewHook, bool);
+AF_EXPOSE(CoreJumped, CCharacterCore, m_Jumped, int);
+AF_EXPOSE(CoreJumpedTotal, CCharacterCore, m_JumpedTotal, int);
+AF_EXPOSE(CoreJumps, CCharacterCore, m_Jumps, int);
+AF_EXPOSE(CoreDirection, CCharacterCore, m_Direction, int);
+AF_EXPOSE(CoreAngle, CCharacterCore, m_Angle, int);
 AF_EXPOSE(CoreInput, CCharacterCore, m_Input, CNetObj_PlayerInput);
+AF_EXPOSE(CoreEvents, CCharacterCore, m_TriggeredEvents, int);
+AF_EXPOSE(CoreId, CCharacterCore, m_Id, int);
+AF_EXPOSE(CoreReset, CCharacterCore, m_Reset, bool);
+AF_EXPOSE(CoreColliding, CCharacterCore, m_Colliding, int);
+AF_EXPOSE(CoreLeftWall, CCharacterCore, m_LeftWall, bool);
+AF_EXPOSE(CoreSolo, CCharacterCore, m_Solo, bool);
+AF_EXPOSE(CoreJetpack, CCharacterCore, m_Jetpack, bool);
+AF_EXPOSE(CoreCollisionDisabled, CCharacterCore, m_CollisionDisabled, bool);
+AF_EXPOSE(CoreEndlessHook, CCharacterCore, m_EndlessHook, bool);
+AF_EXPOSE(CoreEndlessJump, CCharacterCore, m_EndlessJump, bool);
+AF_EXPOSE(CoreHammerDisabled, CCharacterCore, m_HammerHitDisabled, bool);
+AF_EXPOSE(CoreGrenadeDisabled, CCharacterCore, m_GrenadeHitDisabled, bool);
+AF_EXPOSE(CoreLaserDisabled, CCharacterCore, m_LaserHitDisabled, bool);
+AF_EXPOSE(CoreShotgunDisabled, CCharacterCore, m_ShotgunHitDisabled, bool);
+AF_EXPOSE(CoreHookDisabled, CCharacterCore, m_HookHitDisabled, bool);
+AF_EXPOSE(CoreSuper, CCharacterCore, m_Super, bool);
+AF_EXPOSE(CoreInvincible, CCharacterCore, m_Invincible, bool);
+AF_EXPOSE(CoreTelegun, CCharacterCore, m_HasTelegunGun, bool);
+AF_EXPOSE(CoreTelegrenade, CCharacterCore, m_HasTelegunGrenade, bool);
+AF_EXPOSE(CoreTelelaser, CCharacterCore, m_HasTelegunLaser, bool);
+AF_EXPOSE(CoreFreezeStart, CCharacterCore, m_FreezeStart, int);
+AF_EXPOSE(CoreFreezeEnd, CCharacterCore, m_FreezeEnd, int);
+AF_EXPOSE(CoreInFreeze, CCharacterCore, m_IsInFreeze, bool);
+AF_EXPOSE(CoreDeepFrozen, CCharacterCore, m_DeepFrozen, bool);
+AF_EXPOSE(CoreLiveFrozen, CCharacterCore, m_LiveFrozen, bool);
 AF_EXPOSE(CoreTuning, CCharacterCore, m_Tuning, CTuningParams);
+AF_EXPOSE(CoreHookedPlayer, CCharacterCore, m_HookedPlayer, int);
 
 #undef AF_EXPOSE
 
@@ -123,9 +163,40 @@ static_assert(offsetof(CGameClient::CSnapState, m_aCharacters) == measured::SNAP
 static_assert(offsetof(CGameClient::CSnapState::CCharacterInfo, m_Active) == 0);
 static_assert(sizeof(CGameClient::CSnapState::CCharacterInfo) == measured::SNAP_CHARACTER_SIZE);
 static_assert(offsetof(CConfig, m_ClDummy) == measured::CONFIG_DUMMY);
+static_assert(sizeof(WorldConfig) == 24);
+static_assert(std::is_standard_layout_v<WorldConfig>);
+static_assert(offsetof(WorldConfig, m_IsDDRace) == 0);
+static_assert(offsetof(WorldConfig, m_IsVanilla) == 1);
+static_assert(offsetof(WorldConfig, m_IsFNG) == 2);
+static_assert(offsetof(WorldConfig, m_InfiniteAmmo) == 3);
+static_assert(offsetof(WorldConfig, m_PredictTiles) == 4);
+static_assert(offsetof(WorldConfig, m_PredictFreeze) == 8);
+static_assert(offsetof(WorldConfig, m_PredictWeapons) == 12);
+static_assert(offsetof(WorldConfig, m_PredictDDRace) == 13);
+static_assert(offsetof(WorldConfig, m_IsSolo) == 14);
+static_assert(offsetof(WorldConfig, m_UseTuneZones) == 15);
+static_assert(offsetof(WorldConfig, m_BugDDRaceInput) == 16);
+static_assert(offsetof(WorldConfig, m_NoWeakHookAndBounce) == 17);
+static_assert(offsetof(WorldConfig, m_PredictEvents) == 18);
+static_assert(offsetof(WorldConfig, m_OldLaser) == 19);
+static_assert(offsetof(WorldConfig, m_PredictTeleports) == 20);
+static_assert(std::is_standard_layout_v<CNetObj_PlayerInput>);
+static_assert(offsetof(CNetObj_PlayerInput, m_Direction) == 0);
+static_assert(offsetof(CNetObj_PlayerInput, m_TargetX) == 4);
+static_assert(offsetof(CNetObj_PlayerInput, m_TargetY) == 8);
+static_assert(offsetof(CNetObj_PlayerInput, m_Jump) == 12);
+static_assert(offsetof(CNetObj_PlayerInput, m_Fire) == 16);
+static_assert(offsetof(CNetObj_PlayerInput, m_Hook) == 20);
+static_assert(offsetof(CNetObj_PlayerInput, m_PlayerFlags) == 24);
+static_assert(offsetof(CNetObj_PlayerInput, m_WantedWeapon) == 28);
+static_assert(offsetof(CNetObj_PlayerInput, m_NextWeapon) == 32);
+static_assert(offsetof(CNetObj_PlayerInput, m_PrevWeapon) == 36);
+static_assert(sizeof(CTuneParam) == sizeof(std::int32_t));
 
 void ValidateMeasuredLayout()
 {
+    CheckOffset(NativeMemberOffset(Access(ClientState{})), measured::CLIENT_STATE, "IClient::m_State");
+    CheckOffset(NativeMemberOffset(Access(ClientPredictedTicks{})), measured::CLIENT_PREDICTED_TICKS, "IClient::m_aPredTick");
     CheckOffset(NativeMemberOffset(Access(GameClientClient{})), measured::GAMECLIENT_CLIENT, "CGameClient::m_pClient");
     CheckOffset(NativeMemberOffset(Access(GameClientConfig{})), measured::GAMECLIENT_CONFIG, "CGameClient::m_pConfig");
     CheckOffset(NativeMemberOffset(Access(GameClientCollision{})), measured::GAMECLIENT_COLLISION, "CGameClient::m_Collision");
@@ -164,6 +235,8 @@ void ValidateMeasuredLayout()
     CheckOffset(NativeMemberOffset(Access(CollisionDoor{})), measured::COLLISION_DOOR_LAYER, "CCollision::m_pDoor");
     CheckOffset(NativeMemberOffset(Access(CollisionExtraDoor{})), measured::COLLISION_EXTRA_DOOR_LAYER, "CCollision::m_pExtraDoorTiles");
 
+    CheckOffset(NativeMemberOffset(Access(CoreWorld{})), measured::CORE_WORLD, "CCharacterCore::m_pWorld");
+    CheckOffset(NativeMemberOffset(Access(CoreCollision{})), measured::CORE_COLLISION, "CCharacterCore::m_pCollision");
     CheckOffset(NativeMemberOffset(Access(CorePosition{})), measured::CORE_POSITION, "CCharacterCore::m_Pos");
     CheckOffset(NativeMemberOffset(Access(CoreVelocity{})), measured::CORE_VELOCITY, "CCharacterCore::m_Vel");
     CheckOffset(NativeMemberOffset(Access(CoreHookPosition{})), measured::CORE_HOOK_POSITION, "CCharacterCore::m_HookPos");
@@ -171,7 +244,40 @@ void ValidateMeasuredLayout()
     CheckOffset(NativeMemberOffset(Access(CoreHookTeleBase{})), measured::CORE_HOOK_TELE_BASE, "CCharacterCore::m_HookTeleBase");
     CheckOffset(NativeMemberOffset(Access(CoreHookTick{})), measured::CORE_HOOK_TICK, "CCharacterCore::m_HookTick");
     CheckOffset(NativeMemberOffset(Access(CoreHookState{})), measured::CORE_HOOK_STATE, "CCharacterCore::m_HookState");
+    CheckOffset(NativeMemberOffset(Access(CoreActiveWeapon{})), measured::CORE_ACTIVE_WEAPON, "CCharacterCore::m_ActiveWeapon");
+    CheckOffset(NativeMemberOffset(Access(CoreNewHook{})), measured::CORE_NEW_HOOK, "CCharacterCore::m_NewHook");
+    CheckOffset(NativeMemberOffset(Access(CoreJumped{})), measured::CORE_JUMPED, "CCharacterCore::m_Jumped");
+    CheckOffset(NativeMemberOffset(Access(CoreJumpedTotal{})), measured::CORE_JUMPED_TOTAL, "CCharacterCore::m_JumpedTotal");
+    CheckOffset(NativeMemberOffset(Access(CoreJumps{})), measured::CORE_JUMPS, "CCharacterCore::m_Jumps");
+    CheckOffset(NativeMemberOffset(Access(CoreDirection{})), measured::CORE_DIRECTION, "CCharacterCore::m_Direction");
+    CheckOffset(NativeMemberOffset(Access(CoreAngle{})), measured::CORE_ANGLE, "CCharacterCore::m_Angle");
     CheckOffset(NativeMemberOffset(Access(CoreInput{})), measured::CORE_INPUT, "CCharacterCore::m_Input");
+    CheckOffset(NativeMemberOffset(Access(CoreEvents{})), measured::CORE_EVENTS, "CCharacterCore::m_TriggeredEvents");
+    CheckOffset(NativeMemberOffset(Access(CoreId{})), measured::CORE_ID, "CCharacterCore::m_Id");
+    CheckOffset(NativeMemberOffset(Access(CoreReset{})), measured::CORE_RESET, "CCharacterCore::m_Reset");
+    CheckOffset(NativeMemberOffset(Access(CoreColliding{})), measured::CORE_COLLIDING, "CCharacterCore::m_Colliding");
+    CheckOffset(NativeMemberOffset(Access(CoreLeftWall{})), measured::CORE_LEFT_WALL, "CCharacterCore::m_LeftWall");
+    CheckOffset(NativeMemberOffset(Access(CoreSolo{})), measured::CORE_SOLO, "CCharacterCore::m_Solo");
+    CheckOffset(NativeMemberOffset(Access(CoreJetpack{})), measured::CORE_JETPACK, "CCharacterCore::m_Jetpack");
+    CheckOffset(NativeMemberOffset(Access(CoreCollisionDisabled{})), measured::CORE_COLLISION_DISABLED, "CCharacterCore::m_CollisionDisabled");
+    CheckOffset(NativeMemberOffset(Access(CoreEndlessHook{})), measured::CORE_ENDLESS_HOOK, "CCharacterCore::m_EndlessHook");
+    CheckOffset(NativeMemberOffset(Access(CoreEndlessJump{})), measured::CORE_ENDLESS_JUMP, "CCharacterCore::m_EndlessJump");
+    CheckOffset(NativeMemberOffset(Access(CoreHammerDisabled{})), measured::CORE_HAMMER_DISABLED, "CCharacterCore::m_HammerHitDisabled");
+    CheckOffset(NativeMemberOffset(Access(CoreGrenadeDisabled{})), measured::CORE_GRENADE_DISABLED, "CCharacterCore::m_GrenadeHitDisabled");
+    CheckOffset(NativeMemberOffset(Access(CoreLaserDisabled{})), measured::CORE_LASER_DISABLED, "CCharacterCore::m_LaserHitDisabled");
+    CheckOffset(NativeMemberOffset(Access(CoreShotgunDisabled{})), measured::CORE_SHOTGUN_DISABLED, "CCharacterCore::m_ShotgunHitDisabled");
+    CheckOffset(NativeMemberOffset(Access(CoreHookDisabled{})), measured::CORE_HOOK_DISABLED, "CCharacterCore::m_HookHitDisabled");
+    CheckOffset(NativeMemberOffset(Access(CoreSuper{})), measured::CORE_SUPER, "CCharacterCore::m_Super");
+    CheckOffset(NativeMemberOffset(Access(CoreInvincible{})), measured::CORE_INVINCIBLE, "CCharacterCore::m_Invincible");
+    CheckOffset(NativeMemberOffset(Access(CoreTelegun{})), measured::CORE_TELEGUN, "CCharacterCore::m_HasTelegunGun");
+    CheckOffset(NativeMemberOffset(Access(CoreTelegrenade{})), measured::CORE_TELEGRENADE, "CCharacterCore::m_HasTelegunGrenade");
+    CheckOffset(NativeMemberOffset(Access(CoreTelelaser{})), measured::CORE_TELELASER, "CCharacterCore::m_HasTelegunLaser");
+    CheckOffset(NativeMemberOffset(Access(CoreFreezeStart{})), measured::CORE_FREEZE_START, "CCharacterCore::m_FreezeStart");
+    CheckOffset(NativeMemberOffset(Access(CoreFreezeEnd{})), measured::CORE_FREEZE_END, "CCharacterCore::m_FreezeEnd");
+    CheckOffset(NativeMemberOffset(Access(CoreInFreeze{})), measured::CORE_IN_FREEZE, "CCharacterCore::m_IsInFreeze");
+    CheckOffset(NativeMemberOffset(Access(CoreDeepFrozen{})), measured::CORE_DEEP_FROZEN, "CCharacterCore::m_DeepFrozen");
+    CheckOffset(NativeMemberOffset(Access(CoreLiveFrozen{})), measured::CORE_LIVE_FROZEN, "CCharacterCore::m_LiveFrozen");
     CheckOffset(NativeMemberOffset(Access(CoreTuning{})), measured::CORE_TUNING, "CCharacterCore::m_Tuning");
+    CheckOffset(NativeMemberOffset(Access(CoreHookedPlayer{})), measured::CORE_HOOKED_PLAYER, "CCharacterCore::m_HookedPlayer");
 }
 } // namespace avoidfreeze::win32
