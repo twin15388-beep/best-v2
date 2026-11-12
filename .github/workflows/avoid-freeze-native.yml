@@ -54,10 +54,13 @@ jobs:
           & cmake --build build/avoid-freeze --config Release --target AvoidFreeze avoid-freeze-tests --parallel 2 *> $log
           $code = $LASTEXITCODE
           if ($code -ne 0) {
-            $tail = (Get-Content $log -Tail 60) -join "`n"
-            $annotation = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A').Replace('::', ':')
-            Write-Output ("::error title=MSVC build details::$annotation")
-            Get-Content $log -Tail 60
+            $diagnostics = @(Select-String -Path $log -Pattern '(?i)(error [A-Z]+\d+:|fatal error|CMake Error|FAILED:)' | ForEach-Object { $_.Line } | Select-Object -Last 40)
+            if ($diagnostics.Count -eq 0) { $diagnostics = @(Get-Content $log -Tail 25) }
+            $details = ($diagnostics -join "`n")
+            if ($details.Length -gt 5000) { $details = $details.Substring($details.Length - 5000) }
+            $annotation = $details.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A').Replace('::', ':')
+            Write-Output ("::error title=MSVC build diagnostics::$annotation")
+            $diagnostics
             exit $code
           }
           Get-Content $log
