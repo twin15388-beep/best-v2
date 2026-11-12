@@ -25,7 +25,7 @@ Measured RTTI: primary vtable file offset **19898296**, RVA **19904440**; comple
 
 ## Полученный пользовательский отчёт и найденный дефект
 
-Первый JSON **уже получен**, повторно просить его или исходники не нужно. Точный приватный экземпляр `.artifacts/external-helper/incoming/MalinkaHelper-report-01.json`: 2160 bytes, SHA256 **70ad1673df0d577508faa1a8f625b1c8bf786e0f47f2cfd3b16e5808e937046e**. Личный путь, PID и runtime addresses в Git не публикуются. Это пользовательское диагностическое свидетельство, не независимо воспроизведённая проверка gameplay.
+Первый пользовательский JSON **уже был получен** в прежней диагностической задаче; повторно просить его или исходники не нужно. Сам файл, его hash, PID, локальные пути и runtime addresses в этот tracked historical note не включены. Это пользовательское диагностическое свидетельство, не независимо воспроизведённая проверка gameplay.
 
 - EXE SHA/size/image, read-only handle, loaded headers/vtable совпали; ошибки чтения **0**.
 - `root_scan: complete`, **13201408 bytes** attempted/read, **1069 regions**, **0 candidates**. В старой схеме нет начала/конца сканирования. `complete` — лишь конец перечисления, не atomic snapshot.
