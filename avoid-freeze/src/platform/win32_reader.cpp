@@ -371,6 +371,57 @@ void ValidateLoadedVtable(HANDLE process, const ModuleInfo &module)
     }
 }
 
+void ReadRootScanChunk(HANDLE process, std::uint64_t current, std::uint64_t request,
+                       std::uint64_t page_size, std::array<Byte, READ_CHUNK_BYTES> &buffer,
+                       std::uint64_t &attempted, Clock::time_point start)
+{
+    if(request == 0 || request > buffer.size() || request % alignof(std::uint64_t) != 0 ||
+       attempted > MAX_SCAN_BYTES || request > MAX_SCAN_BYTES - attempted)
+        throw std::runtime_error("bounded root scan read exceeded its explicit byte budget");
+
+    // Count requested bytes, including a failed full-chunk attempt, so page retries stay bounded too.
+    attempted += request;
+    SIZE_T read{};
+    const BOOL complete = ReadProcessMemory(process,
+        reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(current)),
+        buffer.data(), static_cast<SIZE_T>(request), &read);
+    const DWORD error = complete ? (read == request ? ERROR_SUCCESS : ERROR_PARTIAL_COPY) : GetLastError();
+    if(error == ERROR_SUCCESS)
+        return;
+    if(error != ERROR_PARTIAL_COPY)
+        throw std::runtime_error(WinError("ReadProcessMemory during root scan", error));
+
+    // A live region can change after VirtualQueryEx. Retry without skipping bytes; if any
+    // page-bounded slice is still unreadable, fail closed because uniqueness is unknown.
+    std::uint64_t recovered{};
+    while(recovered < request)
+    {
+        if(WaitForSingleObject(process, 0) != WAIT_TIMEOUT)
+            throw std::runtime_error("target exited during page-bounded root scan retry");
+        const auto elapsed = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count());
+        if(elapsed >= MAX_SCAN_MS)
+            throw std::runtime_error("bounded root scan timed out during partial-copy retry; uniqueness is unknown");
+
+        const std::uint64_t retry_address = AddAddress(current, recovered);
+        const std::uint64_t bytes_to_page_end = page_size - retry_address % page_size;
+        const std::uint64_t retry_bytes = std::min(request - recovered, bytes_to_page_end);
+        if(retry_bytes == 0 || retry_bytes % alignof(std::uint64_t) != 0 ||
+           attempted > MAX_SCAN_BYTES || retry_bytes > MAX_SCAN_BYTES - attempted)
+            throw std::runtime_error("page-bounded root scan retry exceeded its alignment or byte budget");
+
+        attempted += retry_bytes;
+        SIZE_T retry_read{};
+        const BOOL retry_complete = ReadProcessMemory(process,
+            reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(retry_address)),
+            buffer.data() + static_cast<std::size_t>(recovered),
+            static_cast<SIZE_T>(retry_bytes), &retry_read);
+        const DWORD retry_error = retry_complete ? (retry_read == retry_bytes ? ERROR_SUCCESS : ERROR_PARTIAL_COPY) : GetLastError();
+        if(retry_error != ERROR_SUCCESS)
+            throw std::runtime_error(WinError("ReadProcessMemory during page-bounded root scan retry", retry_error));
+        recovered += retry_bytes;
+    }
+}
+
 std::uint64_t FindUniqueRoot(HANDLE process, std::uint64_t vtable_pointer)
 {
     if(!UserRange(vtable_pointer, sizeof(std::uint64_t)))
@@ -381,6 +432,11 @@ std::uint64_t FindUniqueRoot(HANDLE process, std::uint64_t vtable_pointer)
     std::uint64_t regions{};
     std::vector<std::uint64_t> candidates;
     std::array<Byte, READ_CHUNK_BYTES> buffer{};
+    SYSTEM_INFO system_info{};
+    GetSystemInfo(&system_info);
+    const std::uint64_t page_size = system_info.dwPageSize;
+    if(page_size < alignof(std::uint64_t) || page_size % alignof(std::uint64_t) != 0)
+        throw std::runtime_error("system page size is invalid for aligned root scanning");
 
     while(address <= measured::MAX_USER_ADDRESS)
     {
@@ -425,11 +481,7 @@ std::uint64_t FindUniqueRoot(HANDLE process, std::uint64_t vtable_pointer)
                 request -= request % alignof(std::uint64_t);
                 if(request < sizeof(std::uint64_t))
                     break;
-                SIZE_T read{};
-                if(!ReadProcessMemory(process, reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(current)),
-                                     buffer.data(), static_cast<SIZE_T>(request), &read) || read != request)
-                    throw std::runtime_error(WinError("ReadProcessMemory during root scan"));
-                attempted += request;
+                ReadRootScanChunk(process, current, request, page_size, buffer, attempted, start);
                 for(std::size_t offset = 0; offset + sizeof(std::uint64_t) <= static_cast<std::size_t>(request); offset += alignof(std::uint64_t))
                 {
                     std::uint64_t value{};
