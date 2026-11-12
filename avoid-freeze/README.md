@@ -10,7 +10,7 @@ This directory is a **new standalone implementation**. It does not include or bu
 - The physics policy is deliberately narrow: one active predicted character; no other predicted characters/entities; no dynamic collision layers, ego-tile data, unsupported map tiles, active hook/jump/weapon input, ninja/special movement modes, or unsupported prediction settings. Unsupported data must produce `BLOCKED`.
 - A direction suggestion is not a guarantee that the server will agree. The program does not reproduce full client/server parity, and no user map, user process, gameplay outcome, or anti-cheat compatibility has been tested.
 
-Do not use it on a public server. Native MSVC x64 build, Windows policy tests and `--self-test-layout` passed in [Actions run 43241468940](https://github.com/twin15388-beep/best-v2/actions/runs/43241468940). The experimental artifact includes `SHA256SUMS.txt`; verify the EXE against that file before any optional local/private check. The self-test checks the compiled candidate layout only—it does not exercise a live game process or prove runtime capture/gameplay.
+Do not use it on a public server. Native MSVC x64 build, Windows policy tests and `--self-test-layout` passed in [Actions run 43243871336](https://github.com/twin15388-beep/best-v2/actions/runs/43243871336). The self-test checks every measured member offset consumed by the reader plus the nested world-config and input layouts in that compiled target. The experimental artifact includes `SHA256SUMS.txt`; verify the EXE against it before any optional local/private check. This compile-time self-test does not exercise a live game process or prove runtime capture/gameplay.
 
 ## Pinned source and profile scope
 

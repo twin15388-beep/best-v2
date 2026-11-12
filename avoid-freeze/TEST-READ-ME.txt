@@ -9,7 +9,7 @@ Safety / scope
 - No user's process, map, live gameplay outcome, or anti-cheat behavior has been tested. Do not use it on a public server.
 - If Windows security blocks the unsigned executable, stop. Do not disable SmartScreen, Defender, or other security controls.
 
-Native MSVC x64 build, Windows tests and the no-process layout self-test passed in [Actions run 43241468940](https://github.com/twin15388-beep/best-v2/actions/runs/43241468940). Its `AvoidFreeze-experimental-observe-only-win64` artifact contains `SHA256SUMS.txt`; verify the downloaded EXE against that file before running. If the artifact/hash file is missing or the checksum differs, stop. Do not pass any option other than the included observe-only launcher.
+Native MSVC x64 build, Windows tests and the no-process layout self-test passed in [Actions run 43243871336](https://github.com/twin15388-beep/best-v2/actions/runs/43243871336). Its `AvoidFreeze-experimental-observe-only-win64` artifact contains `SHA256SUMS.txt`; verify the downloaded EXE against that file before running. If the artifact/hash file is missing or the checksum differs, stop. Do not pass any option other than the included observe-only launcher.
 
 First manual check (optional; local/private environment only)
 1. Start the unchanged official client and enter a local/private test map. Do not use a public server.
