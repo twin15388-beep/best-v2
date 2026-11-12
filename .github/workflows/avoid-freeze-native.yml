@@ -1,0 +1,117 @@
+name: AvoidFreeze standalone native MSVC check
+on:
+  push:
+    branches: [main, "arena/**"]
+    paths:
+      - "avoid-freeze/**"
+      - ".github/workflows/avoid-freeze-native.yml"
+  pull_request:
+    paths:
+      - "avoid-freeze/**"
+      - ".github/workflows/avoid-freeze-native.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: avoid-freeze-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-msvc:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check out exact public physics source and recursive dependencies
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: BestProjectTeam/BestClient
+          ref: cf192e3fb8590dbe2e4f66a191aa6616beff6975
+          path: upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Verify pinned public source and submodule commits
+        shell: pwsh
+        run: |
+          $source = (git -C upstream rev-parse HEAD).Trim()
+          $libs = (git -C upstream/ddnet-libs rev-parse HEAD).Trim()
+          if ($source -ne 'cf192e3fb8590dbe2e4f66a191aa6616beff6975') { throw "unexpected upstream commit: $source" }
+          if ($libs -ne 'c0e6703fbcdbe03df2f26875427ec3951ce4ec21') { throw "unexpected ddnet-libs commit: $libs" }
+          Write-Host "pinned-source=$source ddnet-libs=$libs"
+      - name: Configure standalone Windows x64 build
+        shell: pwsh
+        run: |
+          cmake -S avoid-freeze -B build/avoid-freeze -A x64 `
+            -DAF_PINNED_SOURCE="$env:GITHUB_WORKSPACE/upstream" `
+            -DBUILD_TESTING=ON
+      - name: Build program and isolated policy tests
+        shell: pwsh
+        run: cmake --build build/avoid-freeze --config Release --target AvoidFreeze avoid-freeze-tests --parallel 2
+      - name: Run isolated pinned-physics policy tests
+        shell: pwsh
+        run: ctest --test-dir build/avoid-freeze -C Release --output-on-failure
+      - name: Run native measured-layout self-test without opening a process
+        shell: pwsh
+        run: |
+          & "build/avoid-freeze/Release/AvoidFreeze.exe" --self-test-layout
+          if ($LASTEXITCODE -ne 0) { throw "native layout self-test exited $LASTEXITCODE" }
+      - name: Check the executable imports for forbidden write/injection/input APIs
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio installation was not located' }
+          $dumpbin = Get-ChildItem -Path (Join-Path $vs 'VC/Tools/MSVC') -Filter dumpbin.exe -Recurse -File |
+            Where-Object { $_.FullName -match '[\\/]bin[\\/]Hostx64[\\/]x64[\\/]dumpbin\.exe$' } |
+            Sort-Object -Property FullName -Descending | Select-Object -First 1
+          if (-not $dumpbin) { throw 'x64 dumpbin.exe was not located' }
+          $imports = (& $dumpbin.FullName /nologo /imports 'build/avoid-freeze/Release/AvoidFreeze.exe' 2>&1) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed: $imports" }
+          $forbiddenImports = @('WriteProcessMemory', 'NtWriteVirtualMemory', 'VirtualProtectEx', 'VirtualAllocEx', 'CreateRemoteThread', 'CreateRemoteThreadEx', 'NtCreateThreadEx', 'SetWindowsHookExA', 'SetWindowsHookExW', 'SendInput', 'keybd_event', 'mouse_event')
+          foreach ($name in $forbiddenImports) {
+            if ($imports -match "(?i)\b$([regex]::Escape($name))\b") { throw "forbidden API import found: $name" }
+          }
+          $source = Get-ChildItem -Recurse avoid-freeze/src -File | ForEach-Object { Get-Content -Raw $_.FullName }
+          $sourceText = $source -join "`n"
+          $forbiddenSource = @('PROCESS_VM_WRITE', 'PROCESS_VM_OPERATION') + $forbiddenImports
+          foreach ($name in $forbiddenSource) {
+            if ($sourceText -match "(?i)\b$([regex]::Escape($name))\b") { throw "forbidden API identifier found in source: $name" }
+          }
+          Write-Host 'read-only/no-input source and import audit passed'
+      - name: Prepare experimental observe-only bundle
+        shell: pwsh
+        run: |
+          $exe = 'build/avoid-freeze/Release/AvoidFreeze.exe'
+          $bundle = 'build/avoid-freeze/package'
+          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
+          Copy-Item -LiteralPath $exe -Destination $bundle
+          Copy-Item -LiteralPath 'avoid-freeze/OBSERVE-ONLY.cmd' -Destination $bundle
+          Copy-Item -LiteralPath 'avoid-freeze/TEST-READ-ME.txt' -Destination (Join-Path $bundle 'READ-ME-FIRST.txt')
+          Copy-Item -LiteralPath 'avoid-freeze/README.md' -Destination $bundle
+          Copy-Item -LiteralPath 'upstream/LICENSE' -Destination $bundle
+          Copy-Item -LiteralPath 'upstream/license.txt' -Destination $bundle
+          $sha = (Get-FileHash -LiteralPath (Join-Path $bundle 'AvoidFreeze.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  AvoidFreeze.exe" | Set-Content -LiteralPath (Join-Path $bundle 'SHA256SUMS.txt') -Encoding ascii
+          @"
+          repository_commit=$env:GITHUB_SHA
+          pinned_public_source=cf192e3fb8590dbe2e4f66a191aa6616beff6975
+          pinned_ddnet_libs=c0e6703fbcdbe03df2f26875427ec3951ce4ec21
+          build=MSVC x64 Release
+          mode=observe-only-advice
+          input=disabled
+          package=experimental-not-a-release
+          "@ | Set-Content -LiteralPath (Join-Path $bundle 'BUILD-INFO.txt') -Encoding ascii
+          Compress-Archive -Path (Join-Path $bundle '*') -DestinationPath 'build/avoid-freeze/AvoidFreeze-experimental-win64.zip' -Force
+          Get-ChildItem -LiteralPath $bundle | Select-Object Name,Length
+      - name: Upload short-lived experimental test bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: AvoidFreeze-experimental-observe-only-win64
+          path: |
+            build/avoid-freeze/package/
+            build/avoid-freeze/AvoidFreeze-experimental-win64.zip
+          retention-days: 30
+          if-no-files-found: error

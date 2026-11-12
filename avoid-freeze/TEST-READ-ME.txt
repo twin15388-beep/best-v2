@@ -1,0 +1,21 @@
+AvoidFreeze — experimental standalone milestone, NOT A RELEASE
+
+Current mode: observe-only advice. The executable reads a narrowly supported process state and computes a possible direction. It does not send keyboard input. No automatic Avoid action is implemented yet.
+
+Safety / scope
+- Separate companion process. It does not patch or replace DDNet.exe or client files, inject a DLL, or write to game-process memory.
+- The Windows reader asks for query/read/synchronize process rights and is restricted to one exact public executable SHA-256. Other builds and unsupported states should stop with BLOCKED.
+- This is not full client/server physics parity, a ban-safety guarantee, or a promise to prevent freeze. Reading process memory can still be visible to operating-system/security software, and external automation may be restricted by game rules.
+- No user's process, map, live gameplay outcome, or anti-cheat behavior has been tested. Do not use it on a public server.
+- If Windows security blocks the unsigned executable, stop. Do not disable SmartScreen, Defender, or other security controls.
+
+Do not run this procedure until the maintainer has supplied a successful native MSVC x64 build hash and passed its native layout self-test. Do not pass any option other than the included observe-only launcher.
+
+First manual check (local/private environment only)
+1. Start the unchanged official client and enter a local/private test map. Do not use a public server.
+2. Open Task Manager > Details and find the PID for that official DDNet.exe process.
+3. Run OBSERVE-ONLY.cmd from the test bundle and enter that PID. The launcher runs for 30 seconds. It does not send keyboard input.
+4. If the window reports BLOCKED, stop and copy the reason. Do not try a different build, change client files, or bypass the gate.
+5. Otherwise copy the final RESULT JSON line. Share only that line and any BLOCKED reason; redact account names, PIDs, file paths, and other private information.
+
+A suggested direction is a prediction result, not an observed outcome. Report whether it matched actual movement only if that was independently seen in the local/private test. Do not claim Avoid success from the program log alone.

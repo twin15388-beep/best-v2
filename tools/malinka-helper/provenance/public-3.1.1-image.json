@@ -1,0 +1,110 @@
+{
+  "kind": "official-public-image-audit",
+  "tag": "v3.1.1",
+  "source_commit": "cf192e3fb8590dbe2e4f66a191aa6616beff6975",
+  "asset_id": 730984669,
+  "asset_bytes": 65165594,
+  "asset_sha256": "51688c041453d989522658cf46ae21b08ef46b28786da204b82e46c5166d7059",
+  "supplied_dropbox_equivalence": "NOT established",
+  "images": [
+    {
+      "path": "bestclient-3.1.1-win64/DDNet.exe",
+      "bytes": 26206720,
+      "sha256": "50430c5f1081863b956fd5f0d8e1c6b88d1aa27f79e199c4053e86a5b632902f",
+      "machine": 34404,
+      "timestamp": 1794305545,
+      "size_of_image": 50638848,
+      "preferred_image_base": 5368709120,
+      "sections": [
+        {
+          "name": ".text",
+          "rva": 4096,
+          "virtual_size": 19604460,
+          "raw_offset": 1024,
+          "raw_size": 19604480,
+          "characteristics": 1610612768
+        },
+        {
+          "name": ".rdata",
+          "rva": 19611648,
+          "virtual_size": 5419976,
+          "raw_offset": 19605504,
+          "raw_size": 5420032,
+          "characteristics": 1073741888
+        },
+        {
+          "name": ".data",
+          "rva": 25034752,
+          "virtual_size": 24863168,
+          "raw_offset": 25025536,
+          "raw_size": 457216,
+          "characteristics": 3221225536
+        },
+        {
+          "name": ".pdata",
+          "rva": 49901568,
+          "virtual_size": 585984,
+          "raw_offset": 25482752,
+          "raw_size": 586240,
+          "characteristics": 1073741888
+        },
+        {
+          "name": ".fptable",
+          "rva": 50491392,
+          "virtual_size": 256,
+          "raw_offset": 26068992,
+          "raw_size": 512,
+          "characteristics": 3221225536
+        },
+        {
+          "name": ".rsrc",
+          "rva": 50495488,
+          "virtual_size": 33944,
+          "raw_offset": 26069504,
+          "raw_size": 34304,
+          "characteristics": 1073741888
+        },
+        {
+          "name": ".reloc",
+          "rva": 50532352,
+          "virtual_size": 102892,
+          "raw_offset": 26103808,
+          "raw_size": 102912,
+          "characteristics": 1107296320
+        }
+      ],
+      "type_descriptors": [
+        {
+          "file_offset": 25432504,
+          "rva": 25441720
+        }
+      ],
+      "complete_object_locators": [
+        {
+          "file_offset": 24117552,
+          "rva": 24123696,
+          "type_descriptor_rva": 25441720,
+          "hierarchy_rva": 24123736
+        }
+      ],
+      "primary_vtables": [
+        {
+          "file_offset": 19898296,
+          "rva": 19904440,
+          "first_eight_function_rvas": [
+            1578736,
+            5743856,
+            5747008,
+            5819088,
+            5766976,
+            5803232,
+            5803168,
+            5772320
+          ]
+        }
+      ],
+      "codeview": []
+    }
+  ],
+  "debug_files": []
+}

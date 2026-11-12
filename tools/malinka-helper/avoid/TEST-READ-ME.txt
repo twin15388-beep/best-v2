@@ -1,0 +1,19 @@
+MalinkaAvoidPreview — EXPERIMENTAL TEST BUILD, NOT A RELEASE
+
+WHAT THIS IS
+This is a separate Windows x64 companion process. It does not replace or patch DDNet.exe, write to the game process, or inject a DLL. The included OBSERVE-ONLY.cmd deliberately starts the preview without --enable-input, so this first test sends no game input.
+
+IMPORTANT LIMITS
+- This is not a finished Avoid Freeze feature or a guarantee that the official client/server will not detect or prohibit external software. Reading game memory is still observable to the operating system/security software; automated play may violate game rules. No ban-safety guarantee is made.
+- The preview currently accepts only the exact public BestClient 3.1.1 executable profile (DDNet.exe SHA-256 50430c5f1081863b956fd5f0d8e1c6b88d1aa27f79e199c4053e86a5b632902f), one local character, a narrow static-map subset, and exact A=+left / D=+right binds. Other versions or unsupported states should fail closed with BLOCKED.
+- The native reader was tested only in a controlled owned-map session. It has not been validated against your process/session/map or for real Avoid outcomes. The double-read coherence check is not an atomic snapshot.
+- Do not use this test build on a public server. Start with a local/private test environment. Do not pass --enable-input or --arm-once-ready during this first test. Those options can send ordinary A/D keyboard events and have not been safety-tested in your environment.
+- This binary is unsigned. Do not disable Windows security controls to run it; if Windows blocks it, stop and report that instead.
+
+FIRST OBSERVE-ONLY TEST
+1. Start the unchanged official BestClient 3.1.1 client and connect only to a local/private test map.
+2. Double-click OBSERVE-ONLY.cmd. In Task Manager > Details, find the PID for the official DDNet.exe process and enter it in the prompt.
+3. The preview runs for 30 seconds and prints STATE lines plus a final RESULT JSON line. It does not enable the keyboard observer or call SendInput in this mode.
+4. Send back the final RESULT line and any BLOCKED reason. Redact account names or other private information if any appear.
+
+The SHA256SUMS.txt file records the executable hash. BUILD-INFO.txt records the exact repository and pinned upstream source revisions used for this artifact.
