@@ -33,6 +33,7 @@ struct PrivateMember
     };                                                                \
     template struct PrivateMember<TagName, &Owner::Member>
 
+using LocalIdsArray = int[NUM_DUMMIES];
 AF_EXPOSE(GameClientClient, CGameClient, m_pClient, IClient *);
 AF_EXPOSE(GameClientConfig, CGameClient, m_pConfig, CConfig *);
 AF_EXPOSE(GameClientCollision, CGameClient, m_Collision, CCollision);
@@ -40,7 +41,6 @@ AF_EXPOSE(GameClientControls, CGameClient, m_Controls, CControls);
 AF_EXPOSE(GameClientSnap, CGameClient, m_Snap, CGameClient::CSnapState);
 AF_EXPOSE(GameClientLocalIds, CGameClient, m_aLocalIds, LocalIdsArray);
 AF_EXPOSE(GameClientPredictedWorld, CGameClient, m_PredictedWorld, CGameWorld);
-using LocalIdsArray = int[NUM_DUMMIES];
 using ClientDataArray = CGameClient::CClientData[MAX_CLIENTS];
 using TuningArray = CTuningParams[TuneZone::NUM];
 using EntityListArray = CEntity *[CGameWorld::NUM_ENTTYPES];
