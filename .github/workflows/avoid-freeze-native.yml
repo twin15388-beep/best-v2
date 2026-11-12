@@ -49,7 +49,18 @@ jobs:
             -DBUILD_TESTING=ON
       - name: Build program and isolated policy tests
         shell: pwsh
-        run: cmake --build build/avoid-freeze --config Release --target AvoidFreeze avoid-freeze-tests --parallel 2
+        run: |
+          $log = 'avoid-freeze-build.log'
+          & cmake --build build/avoid-freeze --config Release --target AvoidFreeze avoid-freeze-tests --parallel 2 *> $log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $tail = (Get-Content $log -Tail 60) -join "`n"
+            $annotation = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A').Replace('::', ':')
+            Write-Output ("::error title=MSVC build details::$annotation")
+            Get-Content $log -Tail 60
+            exit $code
+          }
+          Get-Content $log
       - name: Run isolated pinned-physics policy tests
         shell: pwsh
         run: ctest --test-dir build/avoid-freeze -C Release --output-on-failure
