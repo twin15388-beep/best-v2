@@ -9,7 +9,7 @@
 - Это не полная Avoid-система и не гарантия исхода: расчёт ограничен одним предсказанным персонажем и небольшим проверенным набором статических условий. Реальные пользовательские карты, сессии и gameplay outcomes не проверены.
 - На публичном сервере не запускать. Первый ручной запуск возможен только после успешной native MSVC x64-сборки и layout self-test, в отдельной local/private среде.
 
-**Статус проверок:** pinned source и Linux policy/test target проверены; `ctest` прошёл 1/1 (9 изолированных assertions). Windows/MSVC сборка, Windows layout self-test, захват процесса и игровые исходы пока не подтверждены. Native workflow находится в [`.github/workflows/avoid-freeze-native.yml`](.github/workflows/avoid-freeze-native.yml); он ещё не запускался на текущих локальных изменениях. Поэтому исполняемого Windows test bundle пока нет.
+**Статус проверок:** pinned source и Linux policy/tests проверены; `ctest` прошёл 1/1 (9 изолированных assertions). Native workflow **43241468940** прошёл на Windows 2022/MSVC x64: build, Windows `ctest`, `--self-test-layout` и аудит исходников/import table. Он подтвердил compiler-derived layout checks только для этого build; процесс пользователя, runtime capture и игровые исходы не тестировались. Создан experimental artifact [`AvoidFreeze-experimental-observe-only-win64`](https://github.com/twin15388-beep/best-v2/actions/runs/43241468940) (444,952 bytes; не release); внутри `SHA256SUMS.txt` для проверки EXE. Не использовать на публичном сервере.
 
 ## Старый preview — только справочный материал
 

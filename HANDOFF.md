@@ -2,36 +2,35 @@
 
 ## Active request and constraints
 
-Продолжать работу над отдельным внешним Avoid Freeze helper рядом с официальным BestClient. Он не должен заменять или менять `DDNet.exe`/файлы клиента, внедрять DLL или записывать в память игры. Первый тестовый этап — строго observe-only, без отправки игрового ввода. Никаких публичных серверов или обещаний ban-safety; реальные пользовательские карты и gameplay outcomes не заявлять непроверенными. Пользователь решил обходиться без PC-агента. Ответ пользователю — на русском, первая строка `[Aero]`, обращение «бро».
+Продолжать работу над отдельным внешним Avoid Freeze helper рядом с официальным BestClient. Он не должен заменять или менять `DDNet.exe`/файлы клиента, внедрять DLL или записывать в память игры. Первый тестовый этап — строго observe-only, без отправки игрового ввода. Не использовать публичные серверы и не заявлять непроверенные пользовательские карты/gameplay outcomes. Пользователь решил обходиться без PC-агента. Ответ пользователю — на русском, первая строка `[Aero]`, обращение «бро».
 
-Старый preview в `tools/malinka-helper/` содержит opt-in `SendInput`-путь и служит только историческим/reference материалом. Для текущей работы использовать только новую папку `avoid-freeze/`; не запускать старый preview и не активировать его input-флаги.
+Старый preview в `tools/malinka-helper/` содержит opt-in `SendInput`-путь и служит только историческим/reference материалом. Для текущей работы использовать только `avoid-freeze/`; не запускать старый preview и не активировать его input-флаги.
 
-## Текущий branch / workspace
+## Текущая ветка / workspace
 
-- Текущая ветка: `arena/52ad073e-best-v2`, статус `active`, base и последний известный HEAD: `244d7d487a48a482d1ecdd77d7190fe5bd5e35ca` (`Initial commit`). Не переключать ветки.
-- Большая часть рабочего дерева (`avoid-freeze/`, `tools/`, `docs/`, workflow, handoff и ignore-файл) ещё не была частью исходного единственного README-коммита; Arena сохраняет изменения автоматически. Не удалять и не чистить эти файлы.
-- Изменённый `README.md` теперь направляет к новому standalone milestone и явно помечает старый preview как reference-only.
+- Текущая ветка `arena/52ad073e-best-v2`, статус `active`, base `244d7d487a48a482d1ecdd77d7190fe5bd5e35ca` (`Initial commit`). Исходный код, успешно прошедший native CI: commit `a08503a2e59f39551523c85ef0cef3b2f695281f`; последующие изменения — только документация и не меняют binary target. Не переключать ветки.
+- Основной код и reference-материалы уже закоммичены и отправлены только в эту ветку. `build/` игнорируется. Не удалять и не чистить рабочие файлы.
+- `README.md` описывает текущий standalone milestone; старый preview помечен архивным. `docs/MALINKA_EXTERNAL.md` — исторические notes без приватного report hash/path.
 
 ## Реализация
 
-- `avoid-freeze/` — отдельная реализация с pinned public BestClient source `cf192e3fb8590dbe2e4f66a191aa6616beff6975`; `pinned-source-sha256.json` проверяет 1126 файлов / 16,150,950 байт. Windows-ветка дополнительно требует `ddnet-libs` `c0e6703fbcdbe03df2f26875427ec3951ce4ec21`.
-- `src/platform/win32_reader.cpp` — Windows x64 reader: открытие только с query/read/synchronize правами, exact executable SHA-256 gate, AMD64/PE и vtable checks, ограниченный уникальный root scan и строго read-only снимок. Double-read — лишь эвристика согласованности, не атомарный snapshot.
-- `src/platform/measured_layout.h` / `layout_check.cpp` содержат кандидатные MSVC x64 layout values, перенесённые из прежнего измерительного/reference preview. Native Windows компилятором и self-test в этой сессии **не проверены**; пока не называть layout подтверждённым.
-- `src/main.cpp` принимает только `--observe-only --pid N [--run-ms ...]` или `--self-test-layout`; ввод не реализован. При ошибке reader выдаёт `BLOCKED`; `RESULT` прямо сообщает `sends_input=false` и `gameplay_outcome_verified=false`.
-- Policy считает только узкий случай одного предсказанного персонажа и статической карты на pinned physics; прочие entity/layer/mode gates fail closed. Результат — совет направления, не полный Avoid и не гарантия исхода.
-- `OBSERVE-ONLY.cmd` и `TEST-READ-ME.txt` описывают только будущую local/private проверку, которая запрещена до успешных native build и layout self-test. Не просить пользователя запускать текущую несобранную версию.
+- `avoid-freeze/` — отдельный observe-only Windows x64 companion на pinned public BestClient source `cf192e3fb8590dbe2e4f66a191aa6616beff6975`. `pinned-source-sha256.json` сверяет 1126 файлов / 16,150,950 байт. Windows target требует `ddnet-libs` `c0e6703fbcdbe03df2f26875427ec3951ce4ec21`.
+- `src/platform/win32_reader.cpp`: процесс открывается только с query/read/synchronize правами; exact executable SHA-256 gate, AMD64/PE/vtable identity, bounded unique root scan, проверка поддерживаемых полей, read-only capture. Double-read — эвристика согласованности, не атомарный snapshot.
+- `src/platform/measured_layout.h` / `layout_check.cpp`: кандидаты смещений object-relative, не RVAs. Native MSVC x64 layout self-test прошёл для этих compile-time checks; это не доказывает runtime layout объекта в пользовательском процессе.
+- `src/main.cpp` принимает только `--observe-only --pid N [--run-ms ...]` или `--self-test-layout`; ввода, DLL injection и process-write APIs в текущем target нет. При ошибке reader выдаёт `BLOCKED`; `RESULT` отмечает `sends_input=false` и `gameplay_outcome_verified=false`.
+- Policy ограничена одним предсказанным персонажем/статической картой на pinned physics и fail-closed gates. Результат — advisory direction, не полный Avoid и не гарантия исхода.
+- `OBSERVE-ONLY.cmd` / `TEST-READ-ME.txt` разрешают только опциональную local/private проверку с artifact успешного run; передавать PID или просить запускать несобранную версию нельзя.
 
-## Проверки, выполненные в этой сессии
+## Проверки
 
 - Pinned-source verifier: PASS — 1126 файлов / 16,150,950 байт.
-- Linux GNU CMake build policy/test targets: PASS. `ctest`: 1/1 прошёл; test binary подтверждает 9 изолированных assertions.
-- `src/main.cpp`: отдельный GNU C++20 syntax-only compile с `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`: PASS после исправления знакового преобразования в JSON escaping.
-- `git diff --check`: запускался до последних edits; повторить перед завершением.
-- В окружении нет установленного системного CMake/MSVC/Windows SDK. Для Linux проверки CMake временно установлен из PyPI в `/tmp/avoidfreezecmake` (не в репозиторий).
-- Не выполнялись: Windows/MSVC compile, native layout self-test, runtime process capture, Windows artifact packaging, реальный gameplay. Предыдущий успешный Actions artifact/run `43077478171` относится к старому reference preview на другом commit, не к этой новой реализации.
+- Linux GNU CMake policy/test build: PASS; `ctest` 1/1, test binary сообщает 9 изолированных assertions.
+- `src/main.cpp`: GNU C++20 syntax-only compile с `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Werror`: PASS.
+- GitHub Actions run [43241468940](https://github.com/twin15388-beep/best-v2/actions/runs/43241468940) на commit `a08503a2e59f39551523c85ef0cef3b2f695281f`: **PASS** — Windows 2022/MSVC x64 build, Windows CTest, `--self-test-layout`, source/import audit на write/injection/input APIs и upload artifact. Это compile/layout/API checks; не было runtime process capture или gameplay test.
+- Artifact: `AvoidFreeze-experimental-observe-only-win64`, ID `13955341157`, size 444,952 bytes, metadata digest `sha256:d2cbca84f77c2c3cfd12a3d3d774655f7cad5dd63ebbf666776c5bddc62fdc2c`, срок хранения до 2026-12-12. Это SHA-256 zip artifact, не EXE hash; EXE `SHA256SUMS.txt` включён внутрь пакета. Сам ZIP в workspace не загружался, поэтому исполняемый SHA здесь не измерен. Не повторять старый Azure-Blob download workaround.
+- MSVC build первоначально поймал и исправил ошибки private-member array aliases и незаквалифицированного offset. Последний успешный run включает эти исправления.
+- В Linux sandbox нет системного CMake/MSVC/Windows SDK. Для Linux проверки CMake временно установлен из PyPI в `/tmp/avoidfreezecmake` (не в репозиторий).
 
-## Workflow / следующий проверяемый шаг
+## Следующий шаг
 
-`.github/workflows/avoid-freeze-native.yml` добавлен для Windows 2022 / MSVC x64: проверяет pinned checkout, собирает executable и policy tests, запускает ctest и `--self-test-layout`, проверяет исходники/import table на write/injection/input API и только после прохождения создаёт экспериментальный observe-only artifact. Этот workflow ещё не выполнялся для текущего дерева: локальные изменения не были отправлены на GitHub. Windows-кандидатные offsets и workflow поэтому остаются unverified.
-
-Следующий шаг — запустить/проверить именно этот workflow на текущей ветке, а не загружать старый artifact. Если native build, ABI self-test или аудит не проходят — исправить и повторить; пока это не пройдено, не передавать пользователю EXE и не просить process PID. Только после успеха можно обсуждать hash-идентифицированный bundle и отдельный ручной тест на local/private карте; старый Azure Blob download/Dropbox поиск не повторять.
+Native build и compile-time layout self-test прошли. Дополнительной реализации перед необязательной проверкой не требуется. Если пользователь сам хочет manual check, использовать только artifact успешного Actions run и сверить EXE по приложенному `SHA256SUMS.txt`; затем допустим строго observe-only запуск на local/private карте. Ни runtime reader, ни игровой результат не проверены. При download-проблеме не обходить TLS/security controls и не отключать Defender/SmartScreen; Dropbox mirror сейчас отсутствует, так как artifact ZIP в workspace не получен.

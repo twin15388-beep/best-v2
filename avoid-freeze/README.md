@@ -4,13 +4,13 @@ This directory is a **new standalone implementation**. It does not include or bu
 
 ## Current milestone
 
-- A separate Windows x64 console program is being developed against one pinned public BestClient source/release profile.
+- A separate Windows x64 console program is built in native MSVC CI against one pinned public BestClient source/release profile.
 - Its first live mode is **observe-only advice**: it opens the target with query/read/synchronize rights, rejects unknown builds and unsupported states, runs the pinned public single-character movement core against an owned copy of a narrow static map, and reports a suggested direction.
 - This milestone does **not** send keyboard input. There is no `SendInput`, keyboard hook, DLL injection, process-memory write, client-file patch, or replacement path in the target.
 - The physics policy is deliberately narrow: one active predicted character; no other predicted characters/entities; no dynamic collision layers, ego-tile data, unsupported map tiles, active hook/jump/weapon input, ninja/special movement modes, or unsupported prediction settings. Unsupported data must produce `BLOCKED`.
 - A direction suggestion is not a guarantee that the server will agree. The program does not reproduce full client/server parity, and no user map, user process, gameplay outcome, or anti-cheat compatibility has been tested.
 
-Do not use it on a public server. The native Windows executable has not yet been built in this workspace; wait for a successful native CI build and its exact hash before any manual check.
+Do not use it on a public server. Native MSVC x64 build, Windows policy tests and `--self-test-layout` passed in [Actions run 43241468940](https://github.com/twin15388-beep/best-v2/actions/runs/43241468940). The experimental artifact includes `SHA256SUMS.txt`; verify the EXE against that file before any optional local/private check. The self-test checks the compiled candidate layout only—it does not exercise a live game process or prove runtime capture/gameplay.
 
 ## Pinned source and profile scope
 
