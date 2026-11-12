@@ -706,7 +706,7 @@ struct Win32Reader::Impl
         if(ReadU64(process.Get(), AddAddress(world, measured::WORLD_EGO_TILES)) != 0)
             throw std::runtime_error("ego-tile prediction is not supported by this standalone milestone");
         const auto tuning_pointer = ReadU64(process.Get(), AddAddress(world, measured::WORLD_TUNING));
-        const auto expected_tuning = AddAddress(root, GAMECLIENT_TUNING_LIST);
+        const auto expected_tuning = AddAddress(root, measured::GAMECLIENT_TUNING_LIST);
         if(tuning_pointer != expected_tuning)
             throw std::runtime_error("effective tuning pointer differs from the measured public layout");
 
