@@ -1,0 +1,50 @@
+name: AvoidFreeze Proxy DLL native MSVC build
+on:
+  push:
+    branches: [main, "arena/**"]
+    paths:
+      - "tools/avoid-freeze-proxy/**"
+      - ".github/workflows/avoid-freeze-proxy-native.yml"
+  pull_request:
+    paths:
+      - "tools/avoid-freeze-proxy/**"
+      - ".github/workflows/avoid-freeze-proxy-native.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: avoid-freeze-proxy-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-msvc:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          cmake -S tools/avoid-freeze-proxy -B build/proxy -A x64
+      - name: Build version.dll and tests
+        shell: pwsh
+        run: |
+          cmake --build build/proxy --config Release --parallel 2
+      - name: Run physics tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build/proxy -C Release --output-on-failure
+      - name: Package version.dll artifact
+        shell: pwsh
+        run: |
+          $pkg = 'build/proxy/package'
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          Copy-Item 'build/proxy/Release/version.dll' -Destination $pkg
+          Copy-Item 'tools/avoid-freeze-proxy/README.md' -Destination $pkg
+          $sha = (Get-FileHash -LiteralPath (Join-Path $pkg 'version.dll') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  version.dll" | Set-Content -LiteralPath (Join-Path $pkg 'SHA256SUMS.txt') -Encoding ascii
+      - name: Upload artifact
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+        with:
+          name: AvoidFreeze-version-proxy-win64
+          path: build/proxy/package
+          retention-days: 14
